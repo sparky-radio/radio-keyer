@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "radio-keyer"
+version = "0.0.1"
+description = "MK623Pro keypad → ham radio CAT control"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Paul E. Rogers (K5AQ)" }]
+requires-python = ">=3.12"
+dependencies = [
+    "evdev>=1.7",
+    "pyserial>=3.5",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+radio-keyer = "radio_keyer.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["radio_keyer"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

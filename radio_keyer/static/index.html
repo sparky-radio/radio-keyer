@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>radio-keyer</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script type="module" src="/static/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <h1>radio-keyer <span id="callsign" class="callsign"></span></h1>
+    <div class="indicators">
+      <span class="pill" id="ind-ws" data-state="off">UI</span>
+      <span class="pill" id="ind-rig" data-state="off">Rig</span>
+      <span class="pill" id="ind-keypad" data-state="off">Keypad</span>
+    </div>
+  </header>
+
+  <div id="restart-banner" class="banner" hidden></div>
+
+  <main class="layout">
+    <section class="card rig">
+      <div class="freq" id="freq">--.---.---</div>
+      <div class="rig-meta">
+        <span class="mode" id="mode">---</span>
+        <span id="passband"></span>
+      </div>
+      <div class="muted" id="rig-desc"></div>
+      <div class="error" id="rig-error" hidden></div>
+    </section>
+
+    <section class="card keys-card">
+      <div class="section-head">
+        <h2>Keys</h2>
+        <nav class="profiles" id="profiles" aria-label="Profiles"></nav>
+      </div>
+      <div class="keys" id="keys"></div>
+      <p class="muted small">Click = short press, ⏵⏵ = long press. <span class="tag">global</span> = from the global profile.</p>
+    </section>
+
+    <section class="card log-card">
+      <div class="section-head">
+        <h2>Activity</h2>
+        <button type="button" class="ghost" id="log-clear">Clear</button>
+      </div>
+      <ol class="log" id="log"></ol>
+    </section>
+
+    <section class="card config-card">
+      <div class="section-head">
+        <h2>Config <span class="muted small" id="config-path"></span></h2>
+        <div class="buttons">
+          <button type="button" class="ghost" id="cfg-reload">Revert</button>
+          <button type="button" id="cfg-check">Check</button>
+          <button type="button" class="primary" id="cfg-save">Save &amp; apply</button>
+        </div>
+      </div>
+      <textarea id="cfg-text" spellcheck="false" autocomplete="off" aria-label="config.yaml"></textarea>
+      <div class="cfg-result" id="cfg-result" hidden></div>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,14 @@
+# Keypad input (Linux evdev; exclusive grab)
+evdev>=1.7
+
+# Rig control: direct serial CAT / WinKeyer / DTR keying
+pyserial>=3.5
+
+# Local web UI
+fastapi>=0.110
+uvicorn[standard]>=0.29
+
+# Config (profiles, key mappings)
+pyyaml>=6.0
+
+# Note: Hamlib is used via rigctld/rigctl (system package), not pip.

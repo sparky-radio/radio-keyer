@@ -1,0 +1,111 @@
+# radio-keyer configuration
+# Check it with:  radio-keyer check
+#
+# Keys are numbered 1-6: left→right, top→bottom (1 = top-left).
+#
+# Each key has a `short` and/or `long` press. Each press runs ONE action or a
+# LIST of actions in order. A bare action (no short/long) means `short`.
+#
+# Actions:
+#   cw: "text"            send CW (placeholders: {call}); optional via: cat | winkeyer | dtr
+#   cw_memory: N          play the radio's stored CW memory N
+#   cw_stop: true         stop sending CW
+#   band: 20m | up | down
+#   freq: 14074000        Hz; optional mode: on the same line
+#   mode: CW              USB LSB CW CWR AM FM RTTY PKTUSB PKTLSB ...
+#   cat: "FA;"            raw ASCII CAT (Kenwood/Yaesu/Elecraft)
+#   cat_hex: "FE FE 94 E0 03 FD"   raw binary CAT (Icom CI-V)
+#   profile: next | prev | <name>
+#   delay_ms: 500
+#
+# Lookup: active profile first, then `global` for anything it doesn't define.
+
+station:
+  callsign: NOCALL           # set to your callsign
+
+rig:
+  backend: rigctld            # rigctld (shared with WSJT-X etc.) | serial (app owns the port)
+  rigctld:
+    host: 127.0.0.1
+    port: 4532
+  serial:
+    model: 3073               # Hamlib model number, see `rigctl -l` (3073 = IC-7300)
+    port: /dev/ttyUSB0
+    baud: 19200
+
+keypad:
+  long_press_ms: 600
+  grab: true
+
+# Local web UI (served by `run` and `dryrun`). Keep host on localhost:
+# the UI can edit this file and send raw CAT.
+web:
+  enabled: true
+  host: 127.0.0.1
+  port: 8073
+
+# Fallback for every profile.
+global:
+  keys:
+    1:
+      long: {profile: next}
+
+# The first profile is active at startup.
+profiles:
+  cw_pota:
+    label: CW POTA Hunter
+    keys:
+      1: {cw: "{call}"}
+      2: {cw: "BK RR GA UR 5NN 5NN GA GA BK"}
+      3: {cw: "E E"}
+      4:
+        short: {cw: "AGN?"}
+        long: {cw_stop: true}
+      5:
+        short: {band: up}
+        long: {band: down}
+      6:
+        short: {mode: CW}
+        long: {cw_memory: 1}
+  cw:
+    label: CW POTA
+    keys:
+      1: {cw: "CQ TEST {call} {call}"}
+      2: {cw: "BK RR GA UR 5NN 5NN GA GA BK"}
+      3: {cw: "TU {call}"}
+      4:
+        short: {cw: "AGN?"}
+        long: {cw_stop: true}
+      5:
+        short: {band: up}
+        long: {band: down}
+      6:
+        short: {mode: CW}
+        long: {cw_memory: 1}
+
+  bands:
+    label: Bands
+    keys:
+      1: {band: 40m}
+      2: {band: 20m}
+      3: {band: 15m}
+      4: {band: 10m}
+      5:
+        short: {band: up}
+        long: {band: down}
+      6:
+        short: {profile: cw}
+
+  ft8:
+    label: FT8
+    keys:
+      1: {freq: 7074000, mode: PKTUSB}
+      2: {freq: 14074000, mode: PKTUSB}
+      3: {freq: 21074000, mode: PKTUSB}
+      4: {freq: 28074000, mode: PKTUSB}
+      6:
+        # A series: QSY to 20m CW and call CQ.
+        long:
+          - {freq: 14030000, mode: CW}
+          - delay_ms: 300
+          - cw: "CQ CQ {call} {call} K"
