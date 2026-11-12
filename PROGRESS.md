@@ -120,3 +120,22 @@
 ### Next
 - [x] User verified `backend: serial` with the dummy rig (model 1). [ ] Real radio still pending (use a `/dev/serial/by-id/...` path).
 - [ ] Form-based per-key editor in the web UI.
+
+### FT-891 bring-up (2026-11-12)
+- `backend: serial` works: model 1036, CP2105 `if00-port0` (Enhanced), 38400 baud. `status`, `band`/`mode` keys OK.
+- **`cw:` fails: Hamlib 4.5.5 `send_morse` is broken for the FT-891.** Its newcat backend sends `KYT;` (for "TEST"), the radio answers `?;`, and Hamlib retries 4× → RPRT -14 "bus collision". Reproduced with plain `rigctl ... b TEST`, so it's not our code.
+- Options: raw-CAT keyer memory (KM write + KY play; needs the FT-891 CAT manual checked), DTR/RTS keying on the Standard port (`if01-port0`), or a newer Hamlib.
+
+## 2026-11-12 (session 6, cont.): Yaesu memory keyer
+
+### Done
+- Read `docs/FT-891_CAT_OM_ENG_1909-C.pdf` and `docs/FT-891_Advance_Manual_ENG_1806-F.pdf` (user-supplied). `KY P1;` plays memory 1-5 (text) / 6-9,A (paddle message). `KM P1 text};` writes a text memory (≤50 chars incl. `}`, spaces OK, `#` = contest number), and `KM P1;` reads it back. All five memories default to TEXT (menus 04-07..11).
+- Tested rigctld on the dummy rig: `send_raw` cuts the text at the first space, but `send_cmd` keeps the rest of the line. → `Rig.send_cmd()` added (rigctld `send_cmd`; reply parsing accepts both a labelled and a bare answer; the dummy rig never answers send_cmd, so the real format is still unverified).
+- `radio_keyer/yaesu_keyer.py`; config `rig.cw_keyer: hamlib|yaesu` and `rig.cw_scratch_memory` (default 5, user's choice).
+  - `cw:` → `send_cmd KM5<TEXT>};KM5;` (write + read-back), then `send_raw KY5;`. A read-back mismatch → error, nothing transmitted.
+  - `cw_memory: 1-10` → `KY1;`..`KY5;`, `KY6;`..`KYA;` (6-10 = paddle memories, user's choice).
+  - `cw_stop` → unsupported (no CAT stop command).
+- `check` prints the CW keyer. README section + example config. 92/92 tests pass.
+
+### Next
+- [ ] User, on the FT-891 (dummy load): `cw:` key, `cw_memory: 1` key, a paddle memory (6-10). Confirm send_cmd's reply format (run with `-v`) and that read-back works.

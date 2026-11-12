@@ -201,11 +201,27 @@ rig:
 
 rigctld is started on the first rig command and restarted if it dies. Other programs can't share the radio in this mode; use the `rigctld` backend for that. The app checks that the port exists and that you can open it before starting rigctld. With a real port but the wrong baud or radio, Hamlib 4.5 doesn't exit; commands just time out. rigctld's `rig_open: error` line shows up in the log (run with `-v` for its full output).
 
+### CW on Yaesu radios (FT-891): `cw_keyer: yaesu`
+
+Hamlib 4.5.5's `send_morse` doesn't work on the FT-891: it sends `KYT;`, the radio answers `?;`, and you get `RPRT -14` ("communication bus collision"). Use the radio's own memory keyer instead:
+
+```yaml
+rig:
+  cw_keyer: yaesu
+  cw_scratch_memory: 5     # overwritten by every `cw:` text
+```
+
+- `cw: "CQ TEST {call}"` writes the text to text memory 5 (`KM5...};`), reads it back, then plays it (`KY5;`). Text is uppercased, and is limited to 49 characters plus the closing `}`. `#` sends the radio's contest number. If the read-back doesn't match, nothing is sent.
+- `cw_memory: 1`–`5` plays text memories 1–5 (`KY1;`–`KY5;`). `cw_memory: 6`–`10` plays paddle-recorded message memories 1–5 (`KY6;`–`KYA;`).
+- `cw_stop` isn't possible: the CAT protocol has no command to stop memory playback. Touch the paddle to stop it.
+- On the radio: mode CW and the keyer on. Turn BK-IN on to transmit; with it off you hear sidetone only.
+- The FT-891 factory text in memory 5 (`R 5NN K}`) gets overwritten.
+
 ### Known limitations (Hamlib 4.5 / rigctld)
 
 - **Raw ASCII CAT can't contain spaces** (rigctld splits arguments on whitespace). Use `cw:` for CW text instead of e.g. Kenwood `KY` commands.
 - **Raw ASCII CAT is fire-and-forget**: no reply is read.
-- **`cw_memory`** isn't implemented: Hamlib has no generic command. Use `cat`/`cat_hex` for your radio's memory-keyer command for now.
+- **`cw_memory`** works only with `rig.cw_keyer: yaesu` (Hamlib has no generic command). For other radios, use `cat`/`cat_hex` with the radio's memory-keyer command.
 - **`cw ... via: winkeyer | dtr`** isn't implemented yet.
 - `stop_morse` depends on the radio's Hamlib backend.
 - A `delay_ms` step blocks other key presses until it finishes (keypad and web UI presses share one queue).
@@ -227,7 +243,7 @@ cp config.example.yaml config.yaml
 | Action | Example |
 |---|---|
 | CW text | `cw: "CQ TEST {call}"` (+ `via: cat \| winkeyer \| dtr`) |
-| Radio CW memory | `cw_memory: 1` |
+| Radio CW memory | `cw_memory: 1` (Yaesu: 1–5 text, 6–10 paddle; needs `rig.cw_keyer: yaesu`) |
 | Stop CW | `cw_stop: true` |
 | Band | `band: 20m` / `up` / `down` |
 | Frequency (Hz) | `freq: 14074000` (+ `mode: PKTUSB`) |

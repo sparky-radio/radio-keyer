@@ -82,3 +82,33 @@ def test_profile_switch_via_global_fallback() -> None:
 def test_cat_hex() -> None:
     out, _, _ = run([press(6)])
     assert out == ["send_raw icom 0xFE;0xFE;0x94;0xE0;0x03;0xFD"]
+
+
+YAESU_CONFIG = CONFIG.replace(
+    "station: {callsign: K5AQ}\n", "station: {callsign: K5AQ}\nrig: {cw_keyer: yaesu}\n"
+)
+
+
+def run_yaesu(presses: list[KeyPress]) -> tuple[list[str], list[bool]]:
+    out: list[str] = []
+    runner = Runner(parse_config_text(YAESU_CONFIG), SimulatedRig(out.append))
+
+    async def main() -> list[bool]:
+        return [await runner.handle_press(p) for p in presses]
+
+    return out, asyncio.run(main())
+
+
+def test_yaesu_cw_text_uses_scratch_memory_5() -> None:
+    out, ok = run_yaesu([press(1)])
+    assert out == ["send_cmd KM5CQ K5AQ};KM5;", "send_raw 0 KY5;"] and ok == [True]
+
+
+def test_yaesu_cw_memory_plays_ky() -> None:
+    out, ok = run_yaesu([press(4)])
+    assert out == ["send_raw 0 KY1;"] and ok == [True]
+
+
+def test_yaesu_cw_stop_is_unsupported() -> None:
+    out, ok = run_yaesu([press(5)])
+    assert out == [] and ok == [False]

@@ -8,7 +8,7 @@
 #
 # Actions:
 #   cw: "text"            send CW (placeholders: {call}); optional via: cat | winkeyer | dtr
-#   cw_memory: N          play the radio's stored CW memory N
+#   cw_memory: N          play the radio's stored CW memory N (needs rig.cw_keyer: yaesu)
 #   cw_stop: true         stop sending CW
 #   band: 20m | up | down
 #   freq: 14074000        Hz; optional mode: on the same line
@@ -32,6 +32,8 @@ rig:
     model: 3073               # Hamlib model number, see `rigctl -l` (3073 = IC-7300)
     port: /dev/ttyUSB0
     baud: 19200
+  cw_keyer: hamlib            # hamlib (send_morse) | yaesu (radio's memory keyer: FT-891 etc.)
+  cw_scratch_memory: 5        # yaesu: text memory 1-5 that `cw:` text overwrites
 
 keypad:
   long_press_ms: 600

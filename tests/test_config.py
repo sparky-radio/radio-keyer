@@ -106,6 +106,8 @@ def test_cw_render() -> None:
         ("profiles: {a: {keys: {1: {short: []}}}}", "empty action list"),
         ("profiles: {global: {}}", "reserved name"),
         ("rig: {backend: serial}\nprofiles: {a: {}}", "rig.serial.model: required"),
+        ("rig: {cw_keyer: icom}\nprofiles: {a: {}}", "rig.cw_keyer"),
+        ("rig: {cw_scratch_memory: 6}\nprofiles: {a: {}}", "rig.cw_scratch_memory"),
         ("rig: {backend: telnet}\nprofiles: {a: {}}", "rig.backend"),
         ("keypad: {grab: yes please}\nprofiles: {a: {}}", "keypad.grab"),
         ("bogus: 1\nprofiles: {a: {}}", "unknown key(s) ['bogus']"),

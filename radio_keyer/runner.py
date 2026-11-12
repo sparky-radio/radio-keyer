@@ -20,7 +20,8 @@ from radio_keyer.actions import (
     ProfileAction,
 )
 from radio_keyer.bands import band_by_name, step_band
-from radio_keyer.config import Config
+from radio_keyer import yaesu_keyer
+from radio_keyer.config import Config, CwKeyer
 from radio_keyer.keypad import KeyPress
 from radio_keyer.rig import Rig, RigConnectionError, RigError
 
@@ -113,17 +114,28 @@ class Runner:
 
     async def run_action(self, action: Action) -> None:
         rig = self._rig
+        rc = self._config.rig
+        yaesu = rc.cw_keyer is CwKeyer.YAESU
         match action:
             case CwAction():
                 if action.via is not CwVia.CAT:
                     raise UnsupportedActionError(f"cw via {action.via} is not implemented yet")
-                await rig.send_morse(action.render(self._cw_values))
+                text = action.render(self._cw_values)
+                if yaesu:
+                    await yaesu_keyer.send_text(rig, text, scratch=rc.cw_scratch_memory)
+                else:
+                    await rig.send_morse(text)
             case CwMemoryAction():
-                raise UnsupportedActionError(
-                    "cw_memory needs rig-specific CAT (Hamlib has no generic command); "
-                    "use cat/cat_hex for now"
-                )
+                if not yaesu:
+                    raise UnsupportedActionError(
+                        "cw_memory needs rig.cw_keyer: yaesu (Hamlib has no generic command)"
+                    )
+                await yaesu_keyer.play_memory(rig, action.slot)
             case CwStopAction():
+                if yaesu:
+                    raise UnsupportedActionError(
+                        "the Yaesu memory keyer has no CAT stop command; touch the paddle"
+                    )
                 await rig.stop_morse()
             case BandAction():
                 if action.band in ("up", "down"):

@@ -6,3 +6,6 @@ __pycache__/
 *.key
 *.bak
 config.yaml
+
+# Vendor manuals (copyrighted; keep local)
+docs/*.pdf

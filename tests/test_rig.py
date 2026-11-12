@@ -172,3 +172,15 @@ def test_real_rigctld_dummy() -> None:
     finally:
         proc.terminate()
         proc.wait(timeout=5)
+
+
+@pytest.mark.parametrize("reply", ["Reply: KM5CQ TEST};", "KM5CQ TEST};"])
+def test_send_cmd_keeps_spaces_and_returns_answer(reply: str) -> None:
+    async def s(rig: RigctldRig, fake: FakeRigctld) -> None:
+        fake.send_cmd_reply = reply
+        assert await rig.send_cmd("KM5CQ  TEST};KM5;") == "KM5CQ TEST};"
+        assert fake.received[-1] == "+\\send_cmd KM5CQ TEST};KM5;"
+        with pytest.raises(ValueError):
+            await rig.send_cmd("KM5\x07;")
+
+    with_fake(s)

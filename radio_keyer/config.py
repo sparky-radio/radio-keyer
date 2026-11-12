@@ -52,6 +52,13 @@ class RigBackend(StrEnum):
     SERIAL = "serial"
 
 
+class CwKeyer(StrEnum):
+    HAMLIB = "hamlib"
+    """Hamlib send_morse/stop_morse; cw_memory unsupported."""
+    YAESU = "yaesu"
+    """Radio's memory keyer via KM/KY CAT (FT-891 and similar)."""
+
+
 # --- config model ---------------------------------------------------------
 
 
@@ -82,6 +89,9 @@ class RigConfig:
     backend: RigBackend = RigBackend.RIGCTLD
     rigctld: RigctldConfig = field(default_factory=RigctldConfig)
     serial: SerialConfig = field(default_factory=SerialConfig)
+    cw_keyer: CwKeyer = CwKeyer.HAMLIB
+    cw_scratch_memory: int = 5
+    """Yaesu: text memory overwritten by `cw:` text (1-5)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,7 +245,7 @@ def _parse_station(raw: object, path: str) -> StationConfig:
 
 def _parse_rig(raw: object, path: str) -> RigConfig:
     m = _mapping(raw, path)
-    _check_keys(m, {"backend", "rigctld", "serial"}, path)
+    _check_keys(m, {"backend", "rigctld", "serial", "cw_keyer", "cw_scratch_memory"}, path)
     backend_s = _opt_str(m, "backend", path, RigBackend.RIGCTLD.value)
     try:
         backend = RigBackend(backend_s)
@@ -263,7 +273,22 @@ def _parse_rig(raw: object, path: str) -> RigConfig:
     if backend is RigBackend.SERIAL and serial.model is None:
         raise ConfigError(f"{sp}.model: required when backend is 'serial' (see `rigctl -l`)")
 
-    return RigConfig(backend=backend, rigctld=rigctld, serial=serial)
+    keyer_s = _opt_str(m, "cw_keyer", path, CwKeyer.HAMLIB.value)
+    try:
+        cw_keyer = CwKeyer(keyer_s)
+    except ValueError:
+        raise ConfigError(
+            f"{path}.cw_keyer: '{keyer_s}' is not one of: {', '.join(CwKeyer)}"
+        ) from None
+    scratch = _opt_int(m, "cw_scratch_memory", path, 5, lo=1, hi=5)
+
+    return RigConfig(
+        backend=backend,
+        rigctld=rigctld,
+        serial=serial,
+        cw_keyer=cw_keyer,
+        cw_scratch_memory=scratch,
+    )
 
 
 def _parse_keypad(raw: object, path: str) -> KeypadConfig:

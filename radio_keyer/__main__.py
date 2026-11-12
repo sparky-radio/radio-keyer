@@ -11,7 +11,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from radio_keyer.actions import Binding
-from radio_keyer.config import Config, ConfigError, Profile, RigBackend, load_config
+from radio_keyer.config import Config, ConfigError, CwKeyer, Profile, RigBackend, load_config
 from radio_keyer.keypad import DEFAULT_DEVICE_PATH, DEFAULT_LONG_PRESS_S, Keypad, key_name
 from radio_keyer.rig import Rig, RigConnectionError, RigctldRig, RigError, SimulatedRig
 from radio_keyer.rigctld_proc import SpawnedRigctldRig
@@ -90,6 +90,9 @@ def describe_rig(config: Config) -> str:
 def check(config: Config) -> None:
     print(f"Station:  {config.station.callsign or '(no callsign)'}")
     print(f"Rig:      {describe_rig(config)}")
+    rc = config.rig
+    if rc.cw_keyer is CwKeyer.YAESU:
+        print(f"CW:       Yaesu memory keyer (cw: text uses memory {rc.cw_scratch_memory})")
     print(f"Keypad:   {config.keypad.device} (long press {config.keypad.long_press_ms} ms)")
     w = config.web
     print(f"Web UI:   {url_for(w.host, w.port) if w.enabled else 'disabled'}")

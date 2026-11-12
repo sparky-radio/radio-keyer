@@ -7,7 +7,9 @@ Hamlib 4.5 notes (verified against `rigctld -m 1`):
 - An unknown command gets NO reply → every command has a timeout, and the
   connection is dropped on timeout because the stream may be out of sync.
 - Arguments are whitespace-separated: `send_raw` takes a single token, so raw
-  CAT cannot contain spaces. `send_morse` takes the rest of the line.
+  CAT cannot contain spaces. `send_morse` and `send_cmd` take the rest of the line.
+- `send_cmd` writes ASCII CAT and waits for the rig's answer, so it should end
+  with a read command (otherwise rigctld waits for its rig timeout).
 - `set_mode <mode> -1` keeps the current passband.
 """
 
@@ -98,6 +100,10 @@ class Rig(ABC):
     async def send_raw(self, data: bytes, *, binary: bool) -> str:
         """Send raw CAT. Returns the rig's answer as text (may be empty)."""
 
+    @abstractmethod
+    async def send_cmd(self, text: str) -> str:
+        """Send one line of ASCII CAT (spaces allowed) and return the rig's answer."""
+
     async def status(self) -> RigStatus:
         freq = await self.get_freq()
         mode, passband = await self.get_mode()
@@ -117,6 +123,14 @@ def _check_line(value: str, what: str) -> str:
     text = value.strip()
     if not text or "\n" in text or "\r" in text or not text.isascii():
         raise ValueError(f"{what} must be a single non-empty ASCII line: {value!r}")
+    return text
+
+
+def _check_cat_line(value: str) -> str:
+    """ASCII CAT for send_cmd: printable, single spaces (rigctld collapses runs)."""
+    text = " ".join(value.split())
+    if not text or not text.isascii() or not text.isprintable():
+        raise ValueError(f"CAT text must be printable ASCII: {value!r}")
     return text
 
 
@@ -185,6 +199,15 @@ class RigctldRig(Rig):
 
     async def _command(self, command: str) -> list[tuple[str, str]]:
         """Send one command; return the 'Key: value' lines of the reply."""
+        lines = await self._command_lines(command)
+        pairs: list[tuple[str, str]] = []
+        for text in lines:
+            key, _, value = text.partition(":")
+            pairs.append((key.strip(), value.strip()))
+        return pairs
+
+    async def _command_lines(self, command: str) -> list[str]:
+        """Send one command; return the reply lines between the echo and 'RPRT n'."""
         name = command.split(" ", 1)[0]
         line = f"+\\{_check_line(command, 'command')}\n".encode("ascii")
         async with self._lock:
@@ -199,8 +222,8 @@ class RigctldRig(Rig):
                 raise RigConnectionError(f"rigctld {name}: {reason}") from exc
 
     @staticmethod
-    async def _read_reply(reader: asyncio.StreamReader, name: str) -> list[tuple[str, str]]:
-        pairs: list[tuple[str, str]] = []
+    async def _read_reply(reader: asyncio.StreamReader, name: str) -> list[str]:
+        lines: list[str] = []
         header_seen = False
         while True:
             raw = await reader.readline()
@@ -214,12 +237,11 @@ class RigctldRig(Rig):
                     raise ConnectionError(f"bad reply {text!r}") from None
                 if code != 0:
                     raise RigError(name, abs(code))
-                return pairs
+                return lines
             if not header_seen:  # echo line, e.g. "set_freq: 14074000"
                 header_seen = True
                 continue
-            key, _, value = text.partition(":")
-            pairs.append((key.strip(), value.strip()))
+            lines.append(text)
 
     @staticmethod
     def _value(pairs: list[tuple[str, str]], key: str, name: str) -> str:
@@ -260,6 +282,13 @@ class RigctldRig(Rig):
         term, cmd = raw_args(data, binary=binary)
         pairs = await self._command(f"send_raw {term} {cmd}")
         return next((v for k, v in pairs if k == "Send raw answer"), "")
+
+    async def send_cmd(self, text: str) -> str:
+        lines = await self._command_lines(f"send_cmd {_check_cat_line(text)}")
+        answer = "".join(lines).strip()
+        # rigctld may label the answer ("Reply: ..."); CAT answers have no ': '.
+        label, sep, rest = answer.partition(": ")
+        return rest.strip() if sep and " " not in label else answer
 
 
 # --- simulated (dry run) --------------------------------------------------
@@ -309,4 +338,8 @@ class SimulatedRig(Rig):
     async def send_raw(self, data: bytes, *, binary: bool) -> str:
         term, cmd = raw_args(data, binary=binary)
         self._out(f"send_raw {term} {cmd}")
+        return ""
+
+    async def send_cmd(self, text: str) -> str:
+        self._out(f"send_cmd {_check_cat_line(text)}")
         return ""
