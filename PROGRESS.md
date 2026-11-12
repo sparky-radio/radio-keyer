@@ -115,7 +115,8 @@
 - Tests: `tests/test_rigctld_proc.py` (argv, missing binary, child exits at startup, real `rigctld -m 1` lifecycle + restart after SIGKILL). 70/70 pass.
 - Smoke: `status` and `run` (Ctrl+C) with `backend: serial, model: 1`; no rigctld left behind.
 - README: new "Rig connection: serial" section.
+- Port check before spawning rigctld: "serial port … not found" / "no permission … dialout" (skipped for the dummy rig and host:port devices). Prompted by an FT-891 test where `port:` still held the `<serial>` placeholder and rigctld just hung. 72/72 tests pass.
 
 ### Next
-- [ ] User: try `backend: serial` with a real radio (use a `/dev/serial/by-id/...` path).
+- [x] User verified `backend: serial` with the dummy rig (model 1). [ ] Real radio still pending (use a `/dev/serial/by-id/...` path).
 - [ ] Form-based per-key editor in the web UI.

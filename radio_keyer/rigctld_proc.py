@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 import shutil
 import socket
 from collections import deque
@@ -28,6 +29,25 @@ STARTUP_TIMEOUT_S: Final[float] = 10.0
 STOP_TIMEOUT_S: Final[float] = 3.0
 _POLL_S: Final[float] = 0.1
 _STDERR_TAIL: Final[int] = 20
+DUMMY_MODEL: Final[int] = 1
+"""Hamlib dummy rig: ignores the serial port."""
+
+
+def check_device(device: str, model: int) -> None:
+    """Fail fast on a missing/inaccessible serial device (rigctld would just hang).
+
+    Skipped for the dummy rig and for non-path devices (e.g. host:port for network rigs).
+    """
+    if model == DUMMY_MODEL or not device.startswith("/"):
+        return
+    if not os.path.exists(device):
+        raise RigConnectionError(
+            f"serial port {device} not found (radio off/unplugged? see `ls -l /dev/serial/by-id/`)"
+        )
+    if not os.access(device, os.R_OK | os.W_OK):
+        raise RigConnectionError(
+            f"no permission to open {device} (add your user to the 'dialout' group, then log in again)"
+        )
 
 
 def free_port(host: str = LOCALHOST) -> int:
@@ -89,6 +109,7 @@ class SpawnedRigctldRig(RigctldRig):
 
     async def _start(self) -> None:
         await self._stop()  # reap a dead child + its stderr reader
+        check_device(self._device, self._model)
         binary = shutil.which(self._binary)
         if binary is None:
             raise RigConnectionError(

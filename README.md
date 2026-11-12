@@ -199,7 +199,7 @@ rig:
     baud: 19200          # omit for Hamlib's default
 ```
 
-rigctld is started on the first rig command and restarted if it dies. Other programs can't share the radio in this mode; use the `rigctld` backend for that. Hamlib 4.5 doesn't exit when the serial port is wrong or missing. Commands just time out, and rigctld's `rig_open: error` line shows up in the log (run with `-v` for its full output).
+rigctld is started on the first rig command and restarted if it dies. Other programs can't share the radio in this mode; use the `rigctld` backend for that. The app checks that the port exists and that you can open it before starting rigctld. With a real port but the wrong baud or radio, Hamlib 4.5 doesn't exit; commands just time out. rigctld's `rig_open: error` line shows up in the log (run with `-v` for its full output).
 
 ### Known limitations (Hamlib 4.5 / rigctld)
 
