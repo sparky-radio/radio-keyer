@@ -14,6 +14,7 @@ from radio_keyer.actions import Binding
 from radio_keyer.config import Config, ConfigError, Profile, RigBackend, load_config
 from radio_keyer.keypad import DEFAULT_DEVICE_PATH, DEFAULT_LONG_PRESS_S, Keypad, key_name
 from radio_keyer.rig import Rig, RigConnectionError, RigctldRig, RigError, SimulatedRig
+from radio_keyer.rigctld_proc import SpawnedRigctldRig
 from radio_keyer.runner import Runner
 from radio_keyer.web import HubLogHandler, WebHub, bind_socket, serve, url_for
 
@@ -83,7 +84,7 @@ def describe_rig(config: Config) -> str:
     if rig.backend is RigBackend.RIGCTLD:
         return f"rigctld → {rig.rigctld.host}:{rig.rigctld.port}"
     s = rig.serial
-    return f"serial → model {s.model} on {s.port} @ {s.baud or 'default'} baud"
+    return f"serial → private rigctld, model {s.model} on {s.port} @ {s.baud or 'default'} baud"
 
 
 def check(config: Config) -> None:
@@ -109,7 +110,10 @@ def make_rig(config: Config) -> Rig:
     rig = config.rig
     if rig.backend is RigBackend.RIGCTLD:
         return RigctldRig(rig.rigctld.host, rig.rigctld.port)
-    raise UsageError("rig.backend 'serial' is not implemented yet; use 'rigctld'")
+    s = rig.serial
+    if s.model is None:  # config parser already enforces this
+        raise UsageError("rig.serial.model is required for the 'serial' backend")
+    return SpawnedRigctldRig(model=s.model, device=s.port, baud=s.baud)
 
 
 async def status(config: Config) -> int:

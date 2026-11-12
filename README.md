@@ -170,7 +170,7 @@ Keypad → actions → rig. If rigctld isn't up yet, it logs a warning and retri
 
 Keep it on localhost: the UI can rewrite the config and send raw CAT. It refuses requests whose Host isn't localhost (DNS rebinding) and cross-site POSTs/WebSockets (CSRF). Set `web.host` only if you need LAN access; there's no login.
 
-### Rig connection: rigctld
+### Rig connection: rigctld (shared)
 
 Start rigctld for your radio (find the model with `rigctl -l`), e.g. IC-7300:
 
@@ -186,7 +186,20 @@ rigctld -m 1 -T 127.0.0.1 -t 4532
 
 WSJT-X, fldigi and loggers can connect to the same rigctld (Hamlib NET rigctl, `127.0.0.1:4532`).
 
-The `serial` backend (app runs Hamlib itself) is not implemented yet.
+### Rig connection: serial (app owns the port)
+
+With `rig.backend: serial` the app starts its own private `rigctld` on a free localhost port (it needs the Hamlib `rigctld` binary on `PATH`) and stops it on exit:
+
+```yaml
+rig:
+  backend: serial
+  serial:
+    model: 3073          # `rigctl -l`
+    port: /dev/ttyUSB0   # better: /dev/serial/by-id/...
+    baud: 19200          # omit for Hamlib's default
+```
+
+rigctld is started on the first rig command and restarted if it dies. Other programs can't share the radio in this mode; use the `rigctld` backend for that. Hamlib 4.5 doesn't exit when the serial port is wrong or missing. Commands just time out, and rigctld's `rig_open: error` line shows up in the log (run with `-v` for its full output).
 
 ### Known limitations (Hamlib 4.5 / rigctld)
 

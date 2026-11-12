@@ -101,3 +101,21 @@
 - User's tuned config copied to `config.example.yaml` (committed). `config.yaml` is now git-ignored (personal copy); README says `cp config.example.yaml config.yaml`.
 - Shipped-config test validates `config.example.yaml`. Missing default `config.yaml` → CLI hints the `cp` command.
 - Web UI verified by user over SSH tunnel (`ssh -L 8073:localhost:8073 ...`).
+- Initial commit `6778dbf` (MIT license added); pushed by user.
+
+### Open question at pause
+- Next: form-based per-key editor in the web UI, or `serial` backend (app spawns private rigctld)?
+
+## 2026-11-12 (session 6): serial backend
+
+### Done
+- `rigctld_proc.py`: `SpawnedRigctldRig` (subclass of `RigctldRig`) runs a private `rigctld -m <model> -r <port> [-s baud] -T 127.0.0.1 -t <free port>`. Starts lazily on the first command and restarts transparently if the child died. `close()` sends SIGTERM, then SIGKILL after 3 s. rigctld stderr: lines containing "error" are logged as WARNING, the rest as DEBUG; the last error line goes into startup failure messages.
+- `make_rig` builds it for `backend: serial`; the web UI's hot-swap of the rig works too (the old child is stopped).
+- Hamlib 4.5 finding: with a wrong or missing serial port rigctld does not exit. It listens, but commands hang (we hit the 3 s timeout) and it logs `rig_open: error`.
+- Tests: `tests/test_rigctld_proc.py` (argv, missing binary, child exits at startup, real `rigctld -m 1` lifecycle + restart after SIGKILL). 70/70 pass.
+- Smoke: `status` and `run` (Ctrl+C) with `backend: serial, model: 1`; no rigctld left behind.
+- README: new "Rig connection: serial" section.
+
+### Next
+- [ ] User: try `backend: serial` with a real radio (use a `/dev/serial/by-id/...` path).
+- [ ] Form-based per-key editor in the web UI.
