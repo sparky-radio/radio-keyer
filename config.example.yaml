@@ -16,6 +16,7 @@
 #   cat: "FA;"            raw ASCII CAT (Kenwood/Yaesu/Elecraft)
 #   cat_hex: "FE FE 94 E0 03 FD"   raw binary CAT (Icom CI-V)
 #   profile: next | prev | <name>
+#   preset: <name>        apply a preset from `presets:` (FT-891)
 #   delay_ms: 500
 #
 # Lookup: active profile first, then `global` for anything it doesn't define.
@@ -49,6 +50,18 @@ web:
   enabled: true
   host: 127.0.0.1
   port: 8073
+
+# Operating presets (FT-891 CAT), applied with `{preset: <name>}`. Every field
+# is optional; each CAT setting is read back, and rejected ones are reported.
+#   mode, width (Hz)        via Hamlib set_mode
+#   power: 5-100 W          agc: off | fast | mid | slow | auto
+#   preamp: ipo | amp       att, nb, nr, break_in, processor: on | off
+#   key_speed: 4-60 WPM     mic_gain, processor_level: 0-100
+#   data_ptt: daky | rts | dtr   (menu 08-10 DATA PTT SELECT)
+presets:
+  cw:   {mode: CW, width: 500, power: 100, agc: fast, key_speed: 25, break_in: on}
+  data: {mode: PKTUSB, width: 3000, power: 30, agc: off, nb: off, nr: off, processor: off, data_ptt: daky}
+  ssb:  {mode: USB, width: 2400, power: 100, agc: slow, mic_gain: 50, processor: on, processor_level: 50}
 
 # Fallback for every profile.
 global:

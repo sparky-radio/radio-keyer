@@ -101,6 +101,10 @@ def check(config: Config) -> None:
     print(f"Keypad:   {config.keypad.device} (long press {config.keypad.long_press_ms} ms)")
     w = config.web
     print(f"Web UI:   {url_for(w.host, w.port) if w.enabled else 'disabled'}")
+    if config.presets:
+        print("\n[presets]")
+        for preset in config.presets.values():
+            print(f"  {preset.describe()}")
     print_profile(config.global_profile, "global (fallback)")
     for i, p in enumerate(config.profiles):
         print_profile(p, f"{p.name}: {p.label}" + ("  ← startup" if i == 0 else ""))

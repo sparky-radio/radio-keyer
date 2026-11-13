@@ -30,11 +30,14 @@ from radio_keyer.actions import (
     DelayAction,
     FreqAction,
     ModeAction,
+    PresetAction,
     ProfileAction,
     cw_fields,
 )
 from radio_keyer.bands import BANDS, band_by_name
 from radio_keyer.dtr_keyer import MAX_WPM, MIN_WPM, KeyLineName
+from radio_keyer import ft891
+from radio_keyer.ft891 import Preset
 from radio_keyer.keypad import DEFAULT_DEVICE_PATH, DEFAULT_LONG_PRESS_S, PressKind
 
 NUM_KEYS: Final[int] = 6
@@ -143,6 +146,8 @@ class Config:
     profiles: tuple[Profile, ...]
     """Ordered; the first is active at startup."""
     web: WebConfig = field(default_factory=WebConfig)
+    presets: Mapping[str, Preset] = field(default_factory=dict)
+    """FT-891 operating presets by name (`{preset: name}` actions)."""
 
     @property
     def profile_names(self) -> tuple[str, ...]:
@@ -204,12 +209,15 @@ def parse_config_text(text: str, source: str = "<config>") -> Config:
 
 def parse_config(raw: object) -> Config:
     top = _mapping(raw, "<top>")
-    _check_keys(top, {"station", "rig", "keypad", "web", GLOBAL_PROFILE, "profiles"}, "<top>")
+    _check_keys(
+        top, {"station", "rig", "keypad", "web", "presets", GLOBAL_PROFILE, "profiles"}, "<top>"
+    )
 
     station = _parse_station(top.get("station"), "station")
     rig = _parse_rig(top.get("rig"), "rig")
     keypad = _parse_keypad(top.get("keypad"), "keypad")
     web = _parse_web(top.get("web"), "web")
+    presets = _parse_presets(top.get("presets"), "presets")
 
     ctx = _Context(station=station)
     global_profile = _parse_profile(GLOBAL_PROFILE, top.get(GLOBAL_PROFILE), GLOBAL_PROFILE, ctx)
@@ -228,6 +236,10 @@ def parse_config(raw: object) -> Config:
     for target, where in ctx.profile_refs:
         if target not in names and target not in (PROFILE_NEXT, PROFILE_PREV):
             raise ConfigError(f"{where}: unknown profile '{target}' (have: {', '.join(names)})")
+    for target, where in ctx.preset_refs:
+        if target not in presets:
+            have = ", ".join(presets) or "none defined"
+            raise ConfigError(f"{where}: unknown preset '{target}' (presets: {have})")
 
     return Config(
         station=station,
@@ -236,6 +248,7 @@ def parse_config(raw: object) -> Config:
         global_profile=global_profile,
         profiles=tuple(profiles),
         web=web,
+        presets=presets,
     )
 
 
@@ -244,6 +257,7 @@ class _Context:
     station: StationConfig
     profile_refs: list[tuple[str, str]] = field(default_factory=list)
     """(target, path) of every ProfileAction, validated once all profiles are known."""
+    preset_refs: list[tuple[str, str]] = field(default_factory=list)
 
 
 # --- sections -------------------------------------------------------------
@@ -346,6 +360,65 @@ def _parse_web(raw: object, path: str) -> WebConfig:
     )
 
 
+_PRESET_KEYS: Final[frozenset[str]] = frozenset(
+    {
+        "mode", "width", "power", "agc", "preamp", "att", "nb", "nr", "key_speed",
+        "break_in", "mic_gain", "processor", "processor_level", "data_ptt",
+    }
+)  # fmt: skip
+
+
+def _parse_presets(raw: object, path: str) -> dict[str, Preset]:
+    m = _mapping(raw, path)
+    return {name: _parse_preset(name, value, f"{path}.{name}") for name, value in m.items()}
+
+
+def _opt_enum[E: StrEnum](m: Mapping[str, object], key: str, path: str, enum: type[E]) -> E | None:
+    value = m.get(key)
+    if value is None:
+        return None
+    if value is False:  # YAML reads a bare `off` as false
+        value = "off"
+    text = _req_str(value, f"{path}.{key}").lower()
+    try:
+        return enum(text)
+    except ValueError:
+        raise ConfigError(f"{path}.{key}: '{text}' is not one of: {', '.join(enum)}") from None
+
+
+def _opt_bool_or_none(m: Mapping[str, object], key: str, path: str) -> bool | None:
+    return None if m.get(key) is None else _opt_bool(m, key, path, False)
+
+
+def _parse_preset(name: str, raw: object, path: str) -> Preset:
+    m = _mapping(raw, path, required=True)
+    _check_keys(m, set(_PRESET_KEYS), path)
+    if not m:
+        raise ConfigError(f"{path}: empty preset")
+    mode_s = _opt_str(m, "mode", path, "") or None
+
+    def level(key: str, bounds: tuple[int, int]) -> int | None:
+        return _opt_int_or_none(m, key, path, lo=bounds[0], hi=bounds[1])
+
+    return Preset(
+        name=name,
+        mode=_check_mode(mode_s, f"{path}.mode") if mode_s else None,
+        width=level("width", ft891.WIDTH_HZ),
+        power=level("power", ft891.POWER_W),
+        agc=_opt_enum(m, "agc", path, ft891.Agc),
+        preamp=_opt_enum(m, "preamp", path, ft891.Preamp),
+        att=_opt_bool_or_none(m, "att", path),
+        nb=_opt_bool_or_none(m, "nb", path),
+        nr=_opt_bool_or_none(m, "nr", path),
+        key_speed=level("key_speed", ft891.KEY_SPEED_WPM),
+        break_in=_opt_bool_or_none(m, "break_in", path),
+        mic_gain=level("mic_gain", ft891.LEVEL),
+        processor=_opt_bool_or_none(m, "processor", path),
+        processor_level=level("processor_level", ft891.LEVEL),
+        data_ptt=_opt_enum(m, "data_ptt", path, ft891.DataPtt),
+    )
+
+
 def _parse_profile(name: str, raw: object, path: str, ctx: _Context) -> Profile:
     m = _mapping(raw, path)
     _check_keys(m, {"label", "keys"}, path)
@@ -389,7 +462,8 @@ def _parse_binding(raw: object, path: str, ctx: _Context) -> Binding:
 # --- actions --------------------------------------------------------------
 
 _ACTION_NAMES: Final[tuple[str, ...]] = (
-    "cw", "cw_memory", "cw_stop", "band", "freq", "mode", "cat", "cat_hex", "profile", "delay_ms",
+    "cw", "cw_memory", "cw_stop", "band", "freq", "mode", "cat", "cat_hex", "profile", "preset",
+    "delay_ms",
 )
 
 
@@ -467,6 +541,10 @@ def _parse_action(raw: object, path: str, ctx: _Context) -> Action:
             target = _req_str(value, vpath)
             ctx.profile_refs.append((target, vpath))
             return ProfileAction(target=target)
+        case "preset":
+            target = _req_str(value, vpath)
+            ctx.preset_refs.append((target, vpath))
+            return PresetAction(name=target)
         case "delay_ms":
             return DelayAction(ms=_req_int(value, vpath, lo=0, hi=_MAX_DELAY_MS))
         case _:
