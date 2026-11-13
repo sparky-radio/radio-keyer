@@ -169,3 +169,13 @@ def test_via_dtr_with_hamlib_keyer() -> None:
 def test_dtr_cw_memory_unsupported() -> None:
     _, _, ok = run_dtr(DTR_CONFIG, [press(4)])
     assert ok == [False]
+
+
+def test_preset_action_applies_and_reports() -> None:
+    config = CONFIG.replace("profiles:\n", "presets:\n  cw: {mode: CW, power: 50}\nprofiles:\n").replace(
+        '2: {band: up}', '2: {preset: cw}'
+    )
+    out: list[str] = []
+    runner = Runner(parse_config_text(config), SimulatedRig(out.append))
+    assert asyncio.run(runner.handle_press(press(2)))
+    assert out == ["set_mode CW", "send_raw 0 PC050;", "send_raw ; PC;"]

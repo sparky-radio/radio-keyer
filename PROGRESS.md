@@ -176,3 +176,14 @@
 - [x] Config check rejects `rig.dtr.port` equal to `rig.serial.port` (the user first set `if00`).
 - [ ] Optionally: panel playback of CH5, and a firmware check for `KY`.
 - [ ] Form-based per-key editor in the web UI.
+
+## 2026-11-13 (session 8, cont.): FT-891 operating presets (branch `feature/mode-presets`)
+
+### Done
+- New top-level `presets:` config section with the `{preset: <name>}` action. Fields: mode, width, power, agc, preamp, att, nb, nr, key_speed, break_in, mic_gain, processor, processor_level, data_ptt.
+- `radio_keyer/ft891.py`: maps fields to CAT commands (PC, GT0, PA0, RA0, NB0, NR0, KS, BI, MG, PR0, PL, EX0810) from the CAT manual. Mode and width go through Hamlib `set_mode`. Each setting is read back; rejected ones are listed in a `PresetError`, and the rest are still applied.
+- `check` lists presets. README, example config and tests updated. 122 tests pass.
+
+### Next
+- [x] cw/data/ssb presets verified on the FT-891 (2026-11-13), bound to long presses on Bands keys 2-4.
+- [ ] Merge `feature/mode-presets` once verified.

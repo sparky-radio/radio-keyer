@@ -4,15 +4,16 @@ Turn a **PCsensor MK623Pro** 6-key USB/Bluetooth keypad into a CAT control pad f
 
 Each key fires an action — send a CW message, change band/frequency/mode, or send a raw CAT string. Profiles (layers) let the 6 keys cover many more functions. A small local web UI shows radio status and edits key mappings.
 
-## Features (planned)
+## Features
 
 - **Exclusive keypad capture** via evdev — key presses never leak into other apps.
 - **Any radio** via Hamlib, plus **raw CAT passthrough** for radio-specific commands.
 - **Two rig connection modes**
   - `rigctld` (TCP) — share the radio with WSJT-X, fldigi, loggers
   - Direct serial — app owns the port (`/dev/ttyUSB*` / `/dev/ttyACM*`)
-- **CW memories**, per-macro method: radio keyer via CAT, radio's stored memories, or WinKeyer/DTR keying.
+- **CW**: Hamlib `send_morse`, the Yaesu memory keyer (CAT), or app-timed DTR/RTS keying (verified on the FT-891). WinKeyer is planned.
 - **Band / frequency / mode** actions.
+- **Operating presets** (FT-891): one key sets mode, width, power, AGC, preamp/ATT, NB/NR, keyer speed, BK-IN, mic gain, processor and DATA PTT for CW / Data / SSB. Each setting is read back to confirm it took.
 - **Profiles** — switch layers (e.g. CW contest / band / macros).
 - **Local web UI** — live radio status, key grid with click-to-fire, profile switch, config editor (done; form-based editor planned).
 
@@ -273,7 +274,38 @@ cp config.example.yaml config.yaml
 | Raw CAT (ASCII) | `cat: "FA;"` |
 | Raw CAT (binary, Icom) | `cat_hex: "FE FE 94 E0 03 FD"` |
 | Switch profile | `profile: next` / `prev` / `<name>` |
+| Operating preset (FT-891) | `preset: cw` (defined under `presets:`) |
 | Pause | `delay_ms: 300` |
+
+### Operating presets (FT-891)
+
+Define named presets once and apply each with a key. Every field is optional.
+
+```yaml
+presets:
+  cw:   {mode: CW, width: 500, power: 100, agc: fast, key_speed: 25, break_in: on}
+  data: {mode: PKTUSB, width: 3000, power: 30, agc: off, nb: off, nr: off, processor: off, data_ptt: daky}
+  ssb:  {mode: USB, width: 2400, power: 100, agc: slow, mic_gain: 50, processor: on, processor_level: 50}
+```
+
+| Field | Values | CAT |
+|---|---|---|
+| `mode`, `width` | Hamlib mode, filter width in Hz | Hamlib `set_mode` |
+| `power` | 5–100 W | `PC` |
+| `agc` | `off` `fast` `mid` `slow` `auto` | `GT0` |
+| `preamp` | `ipo` `amp` | `PA0` |
+| `att`, `nb`, `nr` | `on` / `off` | `RA0`, `NB0`, `NR0` |
+| `key_speed` | 4–60 WPM (radio's keyer) | `KS` |
+| `break_in` | `on` / `off` | `BI` |
+| `mic_gain`, `processor_level` | 0–100 | `MG`, `PL` |
+| `processor` | `on` / `off` | `PR0` |
+| `data_ptt` | `daky` `rts` `dtr` (menu 08-10) | `EX0810` |
+
+- Mode and width are set first, then the CAT settings in the order above.
+- Each CAT setting is read back. If the radio doesn't take one (e.g. a setting that isn't valid in the current mode), the rest are still applied and the press fails with a list of what was rejected.
+- `key_speed` sets the radio's keyer. It doesn't change `rig.dtr.wpm`.
+- To also switch key profiles, use a series: `[{preset: cw}, {profile: cw}]`.
+- The CAT commands are FT-891-specific. On other radios, use `mode` plus `cat` actions.
 
 Series example:
 
@@ -297,6 +329,9 @@ radio_keyer/
   bands.py            band table, band up/down
   rig.py              Rig interface, rigctld client, simulated rig
   runner.py           executes bindings on a Rig, tracks active profile
+  ft891.py            FT-891 operating presets (CAT settings + read-back)
+  dtr_keyer.py        app-timed CW on a serial DTR/RTS line
+  yaesu_keyer.py      Yaesu memory keyer (KM/KY)
   web.py              FastAPI web UI: state/press/profile/config API + WebSocket
   static/             web UI page (index.html, app.js, style.css; no build step)
 tests/                pytest suite (incl. fake rigctld + real dummy-rig test)

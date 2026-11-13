@@ -117,6 +117,15 @@ class ProfileAction:
 
 
 @dataclass(frozen=True, slots=True)
+class PresetAction:
+    name: str
+    """Name of a preset in the config's `presets:` section."""
+
+    def describe(self) -> str:
+        return f"preset {self.name}"
+
+
+@dataclass(frozen=True, slots=True)
 class DelayAction:
     ms: int
 
@@ -133,6 +142,7 @@ type Action = (
     | ModeAction
     | CatAction
     | ProfileAction
+    | PresetAction
     | DelayAction
 )
 

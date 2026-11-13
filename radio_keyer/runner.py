@@ -17,10 +17,11 @@ from radio_keyer.actions import (
     DelayAction,
     FreqAction,
     ModeAction,
+    PresetAction,
     ProfileAction,
 )
 from radio_keyer.bands import band_by_name, step_band
-from radio_keyer import yaesu_keyer
+from radio_keyer import ft891, yaesu_keyer
 from radio_keyer.config import Config, CwKeyer, DtrConfig
 from radio_keyer.dtr_keyer import DtrKeyer, KeyerError, SerialKeyLine
 from radio_keyer.keypad import KeyPress
@@ -132,6 +133,7 @@ class Runner:
                 RigConnectionError,
                 UnsupportedActionError,
                 KeyerError,
+                ft891.PresetError,
                 ValueError,
             ) as exc:
                 skipped = len(binding) - i
@@ -197,5 +199,7 @@ class Runner:
                     log.info("CAT answer: %s", answer)
             case ProfileAction():
                 self.set_profile(action.target)
+            case PresetAction():
+                await ft891.apply_preset(rig, self._config.presets[action.name])
             case DelayAction():
                 await asyncio.sleep(action.ms / 1000)
