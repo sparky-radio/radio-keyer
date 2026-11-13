@@ -185,5 +185,5 @@
 - `check` lists presets. README, example config and tests updated. 122 tests pass.
 
 ### Next
-- [ ] User (FT-891): try the cw/data/ssb presets. In particular, check that the Hamlib width maps to the right SH/NA filter, that AUTO AGC reads back as 4-6, and whether PR/MG are rejected in CW/DATA.
+- [x] cw/data/ssb presets verified on the FT-891 (2026-11-13), bound to long presses on Bands keys 2-4.
 - [ ] Merge `feature/mode-presets` once verified.

@@ -4,15 +4,16 @@ Turn a **PCsensor MK623Pro** 6-key USB/Bluetooth keypad into a CAT control pad f
 
 Each key fires an action — send a CW message, change band/frequency/mode, or send a raw CAT string. Profiles (layers) let the 6 keys cover many more functions. A small local web UI shows radio status and edits key mappings.
 
-## Features (planned)
+## Features
 
 - **Exclusive keypad capture** via evdev — key presses never leak into other apps.
 - **Any radio** via Hamlib, plus **raw CAT passthrough** for radio-specific commands.
 - **Two rig connection modes**
   - `rigctld` (TCP) — share the radio with WSJT-X, fldigi, loggers
   - Direct serial — app owns the port (`/dev/ttyUSB*` / `/dev/ttyACM*`)
-- **CW memories**, per-macro method: radio keyer via CAT, radio's stored memories, or WinKeyer/DTR keying.
+- **CW**: Hamlib `send_morse`, the Yaesu memory keyer (CAT), or app-timed DTR/RTS keying (verified on the FT-891). WinKeyer is planned.
 - **Band / frequency / mode** actions.
+- **Operating presets** (FT-891): one key sets mode, width, power, AGC, preamp/ATT, NB/NR, keyer speed, BK-IN, mic gain, processor and DATA PTT for CW / Data / SSB. Each setting is read back to confirm it took.
 - **Profiles** — switch layers (e.g. CW contest / band / macros).
 - **Local web UI** — live radio status, key grid with click-to-fire, profile switch, config editor (done; form-based editor planned).
 
