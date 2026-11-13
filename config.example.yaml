@@ -32,8 +32,12 @@ rig:
     model: 3073               # Hamlib model number, see `rigctl -l` (3073 = IC-7300)
     port: /dev/ttyUSB0
     baud: 19200
-  cw_keyer: hamlib            # hamlib (send_morse) | yaesu (radio's memory keyer: FT-891 etc.)
+  cw_keyer: hamlib            # hamlib (send_morse) | yaesu (radio's memory keyer) | dtr (app keys rig.dtr)
   cw_scratch_memory: 5        # yaesu: text memory 1-5 that `cw:` text overwrites
+  dtr:                        # cw_keyer: dtr, or `cw: ... via: dtr`
+    # port: /dev/serial/by-id/...-if01-port0   # required for DTR; FT-891 = Standard port
+    line: dtr                 # dtr | rts (FT-891 menu 07-12 PC KEYING must match)
+    wpm: 25                   # 5-50
 
 keypad:
   long_press_ms: 600

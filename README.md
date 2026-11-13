@@ -214,15 +214,37 @@ rig:
 - `cw: "CQ TEST {call}"` writes the text to text memory 5 (`KM5...};`), reads it back, then plays it (`KY5;`). Text is uppercased, and is limited to 49 characters plus the closing `}`. `#` sends the radio's contest number. If the read-back doesn't match, nothing is sent.
 - `cw_memory: 1`–`5` plays text memories 1–5 (`KY1;`–`KY5;`). `cw_memory: 6`–`10` plays paddle-recorded message memories 1–5 (`KY6;`–`KYA;`).
 - `cw_stop` isn't possible: the CAT protocol has no command to stop memory playback. Touch the paddle to stop it.
-- On the radio: mode CW and the keyer on. Turn BK-IN on to transmit; with it off you hear sidetone only.
+- On the radio: mode CW, the keyer on, and **KEYER TYPE (menu 04-01) set to ELEKEY-A/B/Y or ACS**. With KEYER TYPE OFF, the radio answers every `KY` with `?;`, and `python -m radio_keyer status` warns about it. Turn BK-IN on to transmit; with it off you hear sidetone only.
+- The text goes to the radio hex-encoded via `send_raw` because it contains spaces. Hamlib's `send_cmd` can't be used: 4.5.5 waits for a CR/LF terminator that Yaesu CAT never sends.
 - The FT-891 factory text in memory 5 (`R 5NN K}`) gets overwritten.
+
+### CW by DTR/RTS keying: `cw_keyer: dtr`
+
+The app keys CW itself on a serial port control line. This works with any radio that keys CW from a USB serial port. On the FT-891, use it when the CAT memory keyer is rejected (`KY` answers `?;`).
+
+```yaml
+rig:
+  cw_keyer: dtr
+  dtr:
+    port: /dev/serial/by-id/usb-Silicon_Labs_CP2105_Dual_USB_to_UART_Bridge_Controller_XXXX-if01-port0
+    line: dtr     # dtr | rts
+    wpm: 25       # 5-50
+```
+
+- FT-891: `port` is the **Standard** port (`if01-port0`; CAT/rigctld uses `if00-port0`). Set menu **07-12 PC KEYING = DTR** (or RTS to match `line`) and turn **BK-IN on**. The mode must be CW.
+- `cw:` text is queued and sent in the background, so the key press returns at once and other keys stay usable. `cw_stop` aborts the current text and anything queued.
+- `cw: ... via: dtr` sends one binding by DTR while `cw_keyer` stays `hamlib` or `yaesu`.
+- Supported characters: A-Z, 0-9 and `. , ? / = + - ( ) ' " : @ &` and `!`.
+- The port opens on the first DTR `cw:` and stays open (exclusive) until the app exits. Opening a serial port on Linux can pulse DTR/RTS briefly.
+- `cw_memory` isn't available with `cw_keyer: dtr` (it plays the radio's memories via the Yaesu keyer).
+- Timing comes from the PC: accurate to a few ms, good to about 30 WPM. Use a WinKeyer for contest speeds.
 
 ### Known limitations (Hamlib 4.5 / rigctld)
 
 - **Raw ASCII CAT can't contain spaces** (rigctld splits arguments on whitespace). Use `cw:` for CW text instead of e.g. Kenwood `KY` commands.
 - **Raw ASCII CAT is fire-and-forget**: no reply is read.
 - **`cw_memory`** works only with `rig.cw_keyer: yaesu` (Hamlib has no generic command). For other radios, use `cat`/`cat_hex` with the radio's memory-keyer command.
-- **`cw ... via: winkeyer | dtr`** isn't implemented yet.
+- **`cw ... via: winkeyer`** isn't implemented yet.
 - `stop_morse` depends on the radio's Hamlib backend.
 - A `delay_ms` step blocks other key presses until it finishes (keypad and web UI presses share one queue).
 

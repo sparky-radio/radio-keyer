@@ -6,10 +6,13 @@ protocol (commands prefixed with '+'), where every reply ends in 'RPRT n'.
 Hamlib 4.5 notes (verified against `rigctld -m 1`):
 - An unknown command gets NO reply → every command has a timeout, and the
   connection is dropped on timeout because the stream may be out of sync.
-- Arguments are whitespace-separated: `send_raw` takes a single token, so raw
-  CAT cannot contain spaces. `send_morse` and `send_cmd` take the rest of the line.
-- `send_cmd` writes ASCII CAT and waits for the rig's answer, so it should end
-  with a read command (otherwise rigctld waits for its rig timeout).
+- Arguments are whitespace-separated: `send_raw` takes a single token, so ASCII
+  CAT with spaces must be sent hex-encoded ('0x4B;0x4D;...'). `send_morse` takes
+  the rest of the line.
+- `send_raw <term> <cmd>`: term '0' = read no reply, ';' = read up to ';',
+  'icom' = read up to 0xFD.
+- `send_cmd` is not used: 4.5.5 waits for a CR/LF terminator that Yaesu CAT
+  never sends, and rigctld can't change it.
 - `set_mode <mode> -1` keeps the current passband.
 """
 
@@ -97,12 +100,11 @@ class Rig(ABC):
     async def stop_morse(self) -> None: ...
 
     @abstractmethod
-    async def send_raw(self, data: bytes, *, binary: bool) -> str:
-        """Send raw CAT. Returns the rig's answer as text (may be empty)."""
+    async def send_raw(self, data: bytes, *, binary: bool, terminator: str | None = None) -> str:
+        """Send raw CAT. Returns the rig's answer as text (may be empty).
 
-    @abstractmethod
-    async def send_cmd(self, text: str) -> str:
-        """Send one line of ASCII CAT (spaces allowed) and return the rig's answer."""
+        `terminator` overrides the reply terminator (see `raw_args`).
+        """
 
     async def status(self) -> RigStatus:
         freq = await self.get_freq()
@@ -126,35 +128,30 @@ def _check_line(value: str, what: str) -> str:
     return text
 
 
-def _check_cat_line(value: str) -> str:
-    """ASCII CAT for send_cmd: printable, single spaces (rigctld collapses runs)."""
-    text = " ".join(value.split())
-    if not text or not text.isascii() or not text.isprintable():
-        raise ValueError(f"CAT text must be printable ASCII: {value!r}")
-    return text
-
-
 def _check_freq(hz: int) -> int:
     if isinstance(hz, bool) or not isinstance(hz, int) or hz <= 0:
         raise ValueError(f"frequency must be a positive integer Hz: {hz!r}")
     return hz
 
 
-def raw_args(data: bytes, *, binary: bool) -> tuple[str, str]:
+def raw_args(data: bytes, *, binary: bool, terminator: str | None = None) -> tuple[str, str]:
     """(terminator, command) for rigctld `send_raw`.
 
-    ASCII: sent as-is, terminator '0' = read no reply (fire and forget).
-    Binary (Icom CI-V): '0xFE;0xFE;...' with terminator 'icom' (reads to 0xFD).
+    ASCII: sent as-is; default terminator '0' = read no reply (fire and forget).
+    Binary: '0xFE;0xFE;...'; default terminator 'icom' (reads to 0xFD). Also how
+    ASCII containing spaces is sent.
     """
     if not data:
         raise ValueError("raw CAT is empty")
+    if terminator is not None:
+        _check_token(terminator, "send_raw terminator")
     if binary:
-        return "icom", ";".join(f"0x{b:02X}" for b in data)
+        return terminator or "icom", ";".join(f"0x{b:02X}" for b in data)
     try:
         text = data.decode("ascii")
     except UnicodeDecodeError:
         raise ValueError("raw CAT must be ASCII (use cat_hex for binary)") from None
-    return "0", _check_token(text, "raw CAT over rigctld")
+    return terminator or "0", _check_token(text, "raw CAT over rigctld")
 
 
 # --- rigctld --------------------------------------------------------------
@@ -278,17 +275,10 @@ class RigctldRig(Rig):
     async def stop_morse(self) -> None:
         await self._command("stop_morse")
 
-    async def send_raw(self, data: bytes, *, binary: bool) -> str:
-        term, cmd = raw_args(data, binary=binary)
+    async def send_raw(self, data: bytes, *, binary: bool, terminator: str | None = None) -> str:
+        term, cmd = raw_args(data, binary=binary, terminator=terminator)
         pairs = await self._command(f"send_raw {term} {cmd}")
         return next((v for k, v in pairs if k == "Send raw answer"), "")
-
-    async def send_cmd(self, text: str) -> str:
-        lines = await self._command_lines(f"send_cmd {_check_cat_line(text)}")
-        answer = "".join(lines).strip()
-        # rigctld may label the answer ("Reply: ..."); CAT answers have no ': '.
-        label, sep, rest = answer.partition(": ")
-        return rest.strip() if sep and " " not in label else answer
 
 
 # --- simulated (dry run) --------------------------------------------------
@@ -309,6 +299,7 @@ class SimulatedRig(Rig):
         self.freq_hz = freq_hz
         self.mode = mode
         self.passband_hz = passband_hz
+        self._cat_writes: list[str] = []
 
     async def close(self) -> None:
         return None
@@ -335,11 +326,15 @@ class SimulatedRig(Rig):
     async def stop_morse(self) -> None:
         self._out("stop_morse")
 
-    async def send_raw(self, data: bytes, *, binary: bool) -> str:
-        term, cmd = raw_args(data, binary=binary)
+    async def send_raw(self, data: bytes, *, binary: bool, terminator: str | None = None) -> str:
+        term, cmd = raw_args(data, binary=binary, terminator=terminator)
         self._out(f"send_raw {term} {cmd}")
-        return ""
-
-    async def send_cmd(self, text: str) -> str:
-        self._out(f"send_cmd {_check_cat_line(text)}")
-        return ""
+        text = data.decode("ascii", errors="replace")
+        if term != ";":
+            self._cat_writes.append(text)
+            return ""
+        # ASCII CAT read ('KM5;'): answer with the latest matching write, like a radio.
+        prefix = text.removesuffix(";")
+        return next(
+            (w for w in reversed(self._cat_writes) if w.startswith(prefix) and w != text), ""
+        )

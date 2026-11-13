@@ -139,3 +139,39 @@
 
 ### Next
 - [ ] User, on the FT-891 (dummy load): `cw:` key, `cw_memory: 1` key, a paddle memory (6-10). Confirm send_cmd's reply format (run with `-v`) and that read-back works.
+
+## 2026-11-12 (session 7): FT-891 keyer test
+
+### Findings
+- `check` OK on ham-laptop (model 1036, if00-port0, 38400, Yaesu keyer, memory 5).
+- `cw:` text fails: `send_cmd KM5…};KM5;` hits the app's 3 s timeout. With `rigctl -vvvvv`, the radio stores the text and answers `KM5TEST};`, but Hamlib 4.5.5 `send_cmd` waits for a `\n\r` terminator (`send_cmd_term=0x0a 0x0d`), times out and drops the answer. `rigctl` has `-t/--send-cmd-term`; `rigctld` doesn't (its `-t` is the port).
+- `cw_memory: 1` / `6` (`KY1;`/`KY6;` via `send_raw`) returned no error. Whether they sounded is not confirmed yet.
+- FT-891 caps: timeout 2000 ms, retry 3, post_write_delay 50 ms.
+- Side issue (not the app): SSH drops on ham-laptop came from a flapping switch port; moving the cable fixed it.
+
+## 2026-11-13 (session 8): hex send_raw keyer write
+
+### Findings (rigctl interactive on the FT-891)
+- `rigctl ... '\send_raw' ...` on the command line doesn't work in 4.5.5 (`Command '' not found`), so use the interactive prompt.
+- Hex write `\send_raw 0 0x4B;0x4D;0x35;…;0x7D;0x3B` stores the text, and `\send_raw ; KM5;` reads back `KM5CQ TEST};`.
+- `KY5;`/`KY1;` answered `?;` even in CW with `KR1;`. The cause was KEYER TYPE `EX04010;` (OFF). The user set `EX04013;` (ELEKEY-B).
+
+### Done
+- `Rig.send_raw(..., terminator=None)` overrides the reply terminator. `send_cmd` was removed.
+- `yaesu_keyer.send_text`: the `KM` write goes hex via `send_raw 0`, the read-back via `send_raw ; KM P1;` (must match exactly, else nothing is sent), then `KY`.
+- `yaesu_keyer.keyer_warning` reads EX0401. `status` prints a warning when KEYER TYPE is OFF.
+- `SimulatedRig` answers a `;` read with the latest matching write, so dry runs still play `cw:` text.
+- README Yaesu section updated. 97 tests pass.
+
+- Later the same day: `KY1`/`KY5`/`KY6` still answer `?;` with KEYER TYPE ELEKEY-B (`EX04013;`), REC SETTING enabled (`EX05111;`), CW MEMORY 5 = TEXT (`EX04110;`), BK-IN on (`BI1;`) and mode CW (`MD03;`). So CAT `KY` is unusable on this radio, maybe because of its firmware (not confirmed). Panel playback (REC SETTING → CH5) not tested yet.
+
+### DTR keying (`cw_keyer: dtr`)
+- New `radio_keyer/dtr_keyer.py`: Morse table and PARIS timing. A worker thread keys DTR or RTS against absolute deadlines, spinning for the last 2 ms of each wait. Text is queued, so a press returns at once. `stop()` uses a generation counter, so text queued before a stop never plays.
+- Config: `rig.dtr: {port, line: dtr|rts, wpm: 5-50}`. `port` is required for `cw_keyer: dtr`. `cw: ... via: dtr` works with any `cw_keyer`.
+- Runner: the keyer is created lazily, rebuilt when `rig.dtr` changes on reload, and closed at exit. `cw_stop` aborts DTR text. Dry runs use `NullKeyLine`.
+- README section, example config and `check` output updated. 107 tests pass.
+
+### Next
+- [ ] User (FT-891): set menu 07-12 PC KEYING = DTR (`EX07123;`), BK-IN on, CW mode. Put `cw_keyer: dtr` and `rig.dtr.port` (`if01-port0`) in config.yaml, then test `cw:` and `cw_stop` keys into the dummy load. Check the timing by ear.
+- [ ] Optionally: panel playback of CH5, and a firmware check for `KY`.
+- [ ] Form-based per-key editor in the web UI.

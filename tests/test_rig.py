@@ -75,6 +75,19 @@ def test_send_raw_ascii_and_binary() -> None:
     assert "+\\send_raw icom 0xFE;0xFE;0x94;0xE0;0x03;0xFD" in received
 
 
+def test_send_raw_terminator_override() -> None:
+    async def s(rig: RigctldRig, fake: FakeRigctld) -> None:
+        await rig.send_raw(b"KM5A B};", binary=True, terminator="0")
+        fake.send_raw_answer = "KM5A B};"
+        assert await rig.send_raw(b"KM5;", binary=False, terminator=";") == "KM5A B};"
+        with pytest.raises(ValueError):
+            await rig.send_raw(b"KM5;", binary=False, terminator="; X")
+
+    received = with_fake(s).received
+    assert "+\\send_raw 0 0x4B;0x4D;0x35;0x41;0x20;0x42;0x7D;0x3B" in received
+    assert received[-1] == "+\\send_raw ; KM5;"
+
+
 def test_injection_rejected_without_sending() -> None:
     async def s(rig: RigctldRig, fake: FakeRigctld) -> None:
         with pytest.raises(ValueError):
@@ -174,13 +187,3 @@ def test_real_rigctld_dummy() -> None:
         proc.wait(timeout=5)
 
 
-@pytest.mark.parametrize("reply", ["Reply: KM5CQ TEST};", "KM5CQ TEST};"])
-def test_send_cmd_keeps_spaces_and_returns_answer(reply: str) -> None:
-    async def s(rig: RigctldRig, fake: FakeRigctld) -> None:
-        fake.send_cmd_reply = reply
-        assert await rig.send_cmd("KM5CQ  TEST};KM5;") == "KM5CQ TEST};"
-        assert fake.received[-1] == "+\\send_cmd KM5CQ TEST};KM5;"
-        with pytest.raises(ValueError):
-            await rig.send_cmd("KM5\x07;")
-
-    with_fake(s)

@@ -10,12 +10,14 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
+from radio_keyer import yaesu_keyer
 from radio_keyer.actions import Binding
 from radio_keyer.config import Config, ConfigError, CwKeyer, Profile, RigBackend, load_config
 from radio_keyer.keypad import DEFAULT_DEVICE_PATH, DEFAULT_LONG_PRESS_S, Keypad, key_name
 from radio_keyer.rig import Rig, RigConnectionError, RigctldRig, RigError, SimulatedRig
 from radio_keyer.rigctld_proc import SpawnedRigctldRig
-from radio_keyer.runner import Runner
+from radio_keyer.dtr_keyer import DtrKeyer, NullKeyLine
+from radio_keyer.runner import KeyerFactory, Runner, serial_dtr_keyer
 from radio_keyer.web import HubLogHandler, WebHub, bind_socket, serve, url_for
 
 DEFAULT_CONFIG = Path("config.yaml")
@@ -93,6 +95,9 @@ def check(config: Config) -> None:
     rc = config.rig
     if rc.cw_keyer is CwKeyer.YAESU:
         print(f"CW:       Yaesu memory keyer (cw: text uses memory {rc.cw_scratch_memory})")
+    elif rc.cw_keyer is CwKeyer.DTR:
+        d = rc.dtr
+        print(f"CW:       {d.line.value.upper()} keying on {d.port} at {d.wpm} WPM")
     print(f"Keypad:   {config.keypad.device} (long press {config.keypad.long_press_ms} ms)")
     w = config.web
     print(f"Web UI:   {url_for(w.host, w.port) if w.enabled else 'disabled'}")
@@ -121,8 +126,11 @@ def make_rig(config: Config) -> Rig:
 
 async def status(config: Config) -> int:
     rig = make_rig(config)
+    warning: str | None = None
     try:
         st = await rig.status()
+        if config.rig.cw_keyer is CwKeyer.YAESU:
+            warning = await yaesu_keyer.keyer_warning(rig)
     except (RigConnectionError, RigError) as exc:
         print(f"Rig error: {exc}", file=sys.stderr)
         return 1
@@ -131,6 +139,8 @@ async def status(config: Config) -> int:
     print(f"{describe_rig(config)}")
     print(f"Frequency: {st.freq_hz / 1e6:.6f} MHz")
     print(f"Mode:      {st.mode} ({st.passband_hz} Hz)")
+    if warning:
+        print(f"Warning:   {warning}", file=sys.stderr)
     return 0
 
 
@@ -154,9 +164,10 @@ async def run_app(
     *,
     web: bool,
     rig_factory: Callable[[Config], Rig] | None,
+    keyer_factory: KeyerFactory = serial_dtr_keyer,
 ) -> None:
     """Keypad (+ web UI) until Ctrl+C."""
-    runner = Runner(config, rig)
+    runner = Runner(config, rig, keyer_factory=keyer_factory)
     kc = config.keypad
     keypad = Keypad(kc.device, long_press_s=kc.long_press_ms / 1000, grab=kc.grab)
     log.info("Profile: %s (%s)", runner.active_profile, config.profile(runner.active_profile).label)
@@ -203,6 +214,7 @@ async def run_app(
             log.removeHandler(handler)
         if sock is not None:
             sock.close()
+        runner.close_keyer()
         await runner.rig.close()
 
 
@@ -219,7 +231,14 @@ async def run(config: Config, config_path: Path, *, web: bool) -> None:
 async def dryrun(config: Config, config_path: Path, *, web: bool) -> None:
     rig = SimulatedRig(lambda msg: log.info("rig ← %s", msg))
     log.info("Dry run: simulated rig at %.6f MHz %s. Ctrl+C to quit.", rig.freq_hz / 1e6, rig.mode)
-    await run_app(config, config_path, rig, web=web, rig_factory=None)
+    await run_app(
+        config,
+        config_path,
+        rig,
+        web=web,
+        rig_factory=None,
+        keyer_factory=lambda dc: DtrKeyer(NullKeyLine, dc.wpm),
+    )
 
 
 # --- main -----------------------------------------------------------------

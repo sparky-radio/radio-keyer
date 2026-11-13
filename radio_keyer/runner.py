@@ -21,7 +21,8 @@ from radio_keyer.actions import (
 )
 from radio_keyer.bands import band_by_name, step_band
 from radio_keyer import yaesu_keyer
-from radio_keyer.config import Config, CwKeyer
+from radio_keyer.config import Config, CwKeyer, DtrConfig
+from radio_keyer.dtr_keyer import DtrKeyer, KeyerError, SerialKeyLine
 from radio_keyer.keypad import KeyPress
 from radio_keyer.rig import Rig, RigConnectionError, RigError
 
@@ -32,16 +33,29 @@ class UnsupportedActionError(Exception):
     """Action is valid config but not implemented for this rig/backend yet."""
 
 
+type KeyerFactory = Callable[[DtrConfig], DtrKeyer]
+
+
+def serial_dtr_keyer(dc: DtrConfig) -> DtrKeyer:
+    """DtrKeyer on the configured port (opened on the first `cw:`)."""
+    if not dc.port:
+        raise UnsupportedActionError("CW via DTR needs rig.dtr.port")
+    return DtrKeyer(lambda: SerialKeyLine(dc.port, dc.line), dc.wpm)
+
+
 class Runner:
     def __init__(
         self,
         config: Config,
         rig: Rig,
         *,
+        keyer_factory: KeyerFactory = serial_dtr_keyer,
         on_profile_change: Callable[[str], None] | None = None,
     ) -> None:
         self._config = config
         self._rig = rig
+        self._keyer_factory = keyer_factory
+        self._dtr: DtrKeyer | None = None
         self._cw_values = config.station.cw_values()
         self.on_profile_change = on_profile_change
         self._lock = asyncio.Lock()
@@ -57,10 +71,23 @@ class Runner:
 
     def reload(self, config: Config) -> None:
         """Use a new config; keep the active profile if it still exists."""
+        if config.rig.dtr != self._config.rig.dtr:
+            self.close_keyer()
         self._config = config
         self._cw_values = config.station.cw_values()
         if self.active_profile not in config.profile_names:
             self._set_profile(config.profiles[0].name)
+
+    def close_keyer(self) -> None:
+        """Stop and release the DTR keyer (reopened on the next DTR `cw:`)."""
+        keyer, self._dtr = self._dtr, None
+        if keyer is not None:
+            keyer.close()
+
+    def _dtr_keyer(self) -> DtrKeyer:
+        if self._dtr is None:
+            self._dtr = self._keyer_factory(self._config.rig.dtr)
+        return self._dtr
 
     async def replace_rig(self, rig: Rig) -> Rig:
         """Swap in a new rig between presses; returns the old one (caller closes it)."""
@@ -100,7 +127,13 @@ class Runner:
             log.info("%s%s: %s", where, step, action.describe())
             try:
                 await self.run_action(action)
-            except (RigError, RigConnectionError, UnsupportedActionError, ValueError) as exc:
+            except (
+                RigError,
+                RigConnectionError,
+                UnsupportedActionError,
+                KeyerError,
+                ValueError,
+            ) as exc:
                 skipped = len(binding) - i
                 log.error(
                     "%s%s failed: %s%s",
@@ -118,10 +151,12 @@ class Runner:
         yaesu = rc.cw_keyer is CwKeyer.YAESU
         match action:
             case CwAction():
-                if action.via is not CwVia.CAT:
+                if action.via is CwVia.WINKEYER:
                     raise UnsupportedActionError(f"cw via {action.via} is not implemented yet")
                 text = action.render(self._cw_values)
-                if yaesu:
+                if action.via is CwVia.DTR or rc.cw_keyer is CwKeyer.DTR:
+                    self._dtr_keyer().send(text)  # queued; returns at once
+                elif yaesu:
                     await yaesu_keyer.send_text(rig, text, scratch=rc.cw_scratch_memory)
                 else:
                     await rig.send_morse(text)
@@ -132,11 +167,14 @@ class Runner:
                     )
                 await yaesu_keyer.play_memory(rig, action.slot)
             case CwStopAction():
-                if yaesu:
+                if self._dtr is not None:
+                    self._dtr.stop()
+                if rc.cw_keyer is CwKeyer.HAMLIB:
+                    await rig.stop_morse()
+                elif yaesu and self._dtr is None:
                     raise UnsupportedActionError(
                         "the Yaesu memory keyer has no CAT stop command; touch the paddle"
                     )
-                await rig.stop_morse()
             case BandAction():
                 if action.band in ("up", "down"):
                     current = await rig.get_freq()

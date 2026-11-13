@@ -1,6 +1,7 @@
 import asyncio
 
 from radio_keyer.config import parse_config_text
+from radio_keyer.dtr_keyer import DtrKeyer, NullKeyLine, normalize
 from radio_keyer.keypad import KeyPress, PressKind
 from radio_keyer.rig import RigError, SimulatedRig
 from radio_keyer.runner import Runner
@@ -101,7 +102,8 @@ def run_yaesu(presses: list[KeyPress]) -> tuple[list[str], list[bool]]:
 
 def test_yaesu_cw_text_uses_scratch_memory_5() -> None:
     out, ok = run_yaesu([press(1)])
-    assert out == ["send_cmd KM5CQ K5AQ};KM5;", "send_raw 0 KY5;"] and ok == [True]
+    write = "send_raw 0 0x4B;0x4D;0x35;0x43;0x51;0x20;0x4B;0x35;0x41;0x51;0x7D;0x3B"
+    assert out == [write, "send_raw ; KM5;", "send_raw 0 KY5;"] and ok == [True]
 
 
 def test_yaesu_cw_memory_plays_ky() -> None:
@@ -112,3 +114,58 @@ def test_yaesu_cw_memory_plays_ky() -> None:
 def test_yaesu_cw_stop_is_unsupported() -> None:
     out, ok = run_yaesu([press(5)])
     assert out == [] and ok == [False]
+
+
+DTR_CONFIG = CONFIG.replace(
+    "station: {callsign: K5AQ}\n",
+    "station: {callsign: K5AQ}\nrig: {cw_keyer: dtr, dtr: {port: /dev/null, wpm: 50}}\n",
+)
+
+
+class FakeKeyer(DtrKeyer):
+    def __init__(self) -> None:
+        super().__init__(NullKeyLine, 50)
+        self.sent: list[str] = []
+        self.stops = 0
+        self.closed = False
+
+    def send(self, text: str) -> None:
+        normalize(text)
+        self.sent.append(text)
+
+    def stop(self) -> None:
+        self.stops += 1
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def run_dtr(config: str, presses: list[KeyPress]) -> tuple[list[str], FakeKeyer, list[bool]]:
+    out: list[str] = []
+    keyer = FakeKeyer()
+    runner = Runner(parse_config_text(config), SimulatedRig(out.append), keyer_factory=lambda _: keyer)
+
+    async def main() -> list[bool]:
+        return [await runner.handle_press(p) for p in presses]
+
+    ok = asyncio.run(main())
+    runner.close_keyer()
+    return out, keyer, ok
+
+
+def test_dtr_keyer_sends_cw_and_stops() -> None:
+    out, keyer, ok = run_dtr(DTR_CONFIG, [press(1), press(5)])
+    assert keyer.sent == ["CQ K5AQ", "NEVER"] and keyer.stops == 1 and keyer.closed
+    assert out == [] and ok == [True, True]
+
+
+def test_via_dtr_with_hamlib_keyer() -> None:
+    config = CONFIG.replace('{cw: "CQ {call}"}', '{cw: "CQ {call}", via: dtr}')
+    out, keyer, ok = run_dtr(config, [press(1), press(3)])
+    assert keyer.sent == ["CQ K5AQ"]
+    assert out[-1] == 'send_morse "TEST"' and ok == [True, True]
+
+
+def test_dtr_cw_memory_unsupported() -> None:
+    _, _, ok = run_dtr(DTR_CONFIG, [press(4)])
+    assert ok == [False]

@@ -9,9 +9,13 @@ radio answers `?;`). The radio's own keyer is used instead:
   at most 50 characters including it. '#' inserts the contest number.
 - `KM P1;` reads it back → `KM P1 <text>;`.
 
+- `EX0401;` reads KEYER TYPE → `EX0401P2;`. With 0 (OFF) the radio answers
+  every `KY` with `?;` (verified on an FT-891, 2026-11-13).
+
 Free CW text = write it to a scratch text memory, then play that memory.
-`KM` text may contain spaces, which rigctld's `send_raw` can't carry, so it
-goes via `send_cmd` with a `KM P1;` read appended (send_cmd waits for an answer).
+`KM` text may contain spaces, which a rigctld `send_raw` token can't, so the
+write goes hex-encoded (terminator '0': no answer) and the read-back as ASCII
+with terminator ';'. Verified on an FT-891 with Hamlib 4.5.5.
 """
 
 from __future__ import annotations
@@ -63,10 +67,14 @@ def _check_text_memory(slot: int) -> int:
     return slot
 
 
-def km_write_and_read(slot: int, text: str) -> str:
-    """`KM` write of `text` to text memory `slot`, followed by a `KM` read."""
+def km_write(slot: int, text: str) -> bytes:
+    """`KM` write of `text` to text memory `slot`."""
     _check_text_memory(slot)
-    return f"KM{slot}{normalize_text(text)}{END};KM{slot};"
+    return f"KM{slot}{normalize_text(text)}{END};".encode("ascii")
+
+
+def km_read(slot: int) -> bytes:
+    return f"KM{_check_text_memory(slot)};".encode("ascii")
 
 
 async def play_memory(rig: Rig, slot: int) -> None:
@@ -74,14 +82,23 @@ async def play_memory(rig: Rig, slot: int) -> None:
 
 
 async def send_text(rig: Rig, text: str, *, scratch: int) -> None:
-    """Store `text` in text memory `scratch` and play it."""
-    command = km_write_and_read(scratch, text)
-    expected = command.split(";", 1)[0]
-    answer = await rig.send_cmd(command)
-    if answer and expected not in answer:  # don't transmit whatever else is in the memory
+    """Store `text` in text memory `scratch`, verify it, and play it."""
+    write = km_write(scratch, text)
+    await rig.send_raw(write, binary=True, terminator="0")
+    answer = (await rig.send_raw(km_read(scratch), binary=False, terminator=";")).strip()
+    expected = write.decode("ascii")
+    if answer != expected:  # don't transmit whatever else is in the memory
         raise ValueError(
-            f"keyer memory {scratch} read back {answer!r}, expected {expected + ';'!r}; not sent"
+            f"keyer memory {scratch} read back {answer!r}, expected {expected!r}; not sent"
         )
-    if not answer:
-        log.debug("Keyer memory %d: no read-back answer", scratch)
     await play_memory(rig, scratch)
+
+
+async def keyer_warning(rig: Rig) -> str | None:
+    """A warning if the radio's KEYER TYPE would make `KY` fail, else None."""
+    answer = (await rig.send_raw(b"EX0401;", binary=False, terminator=";")).strip()
+    if answer == "EX04010;":
+        return "KEYER TYPE (menu 04-01) is OFF: the radio rejects memory playback (KY)"
+    if not answer.startswith("EX0401"):
+        return f"could not read KEYER TYPE (menu 04-01): answer {answer!r}"
+    return None

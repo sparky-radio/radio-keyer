@@ -5,7 +5,9 @@ import pytest
 from radio_keyer.rig import SimulatedRig
 from radio_keyer.yaesu_keyer import (
     MAX_TEXT,
-    km_write_and_read,
+    keyer_warning,
+    km_read,
+    km_write,
     ky_command,
     normalize_text,
     play_memory,
@@ -35,43 +37,59 @@ def test_normalize() -> None:
             normalize_text(bad)
 
 
-def test_km_command() -> None:
-    assert km_write_and_read(5, "cq test") == "KM5CQ TEST};KM5;"
+def test_km_commands() -> None:
+    assert km_write(5, "cq test") == b"KM5CQ TEST};"
+    assert km_read(5) == b"KM5;"
     with pytest.raises(ValueError):
-        km_write_and_read(6, "CQ")
+        km_write(6, "CQ")
 
 
 class AnsweringRig(SimulatedRig):
+    """Answers every ';'-terminated read with `answer`."""
+
     def __init__(self, answer: str) -> None:
         self.sent: list[str] = []
         super().__init__(self.sent.append)
         self.answer = answer
 
-    async def send_cmd(self, text: str) -> str:
-        await super().send_cmd(text)
-        return self.answer
+    async def send_raw(self, data: bytes, *, binary: bool, terminator: str | None = None) -> str:
+        await super().send_raw(data, binary=binary, terminator=terminator)
+        return self.answer if terminator == ";" else ""
 
 
-def test_send_text_writes_then_plays() -> None:
-    rig = AnsweringRig("KM5CQ K5AQ};")
-    asyncio.run(send_text(rig, "cq k5aq", scratch=5))
-    assert rig.sent == ["send_cmd KM5CQ K5AQ};KM5;", "send_raw 0 KY5;"]
+KM5_TEST_HEX = "0x4B;0x4D;0x35;0x54;0x45;0x53;0x54;0x7D;0x3B"
 
 
-def test_send_text_without_readback_still_plays() -> None:
-    rig = AnsweringRig("")
-    asyncio.run(send_text(rig, "TEST", scratch=3))
-    assert rig.sent == ["send_cmd KM3TEST};KM3;", "send_raw 0 KY3;"]
+def test_send_text_writes_hex_verifies_then_plays() -> None:
+    rig = AnsweringRig("KM5TEST};")
+    asyncio.run(send_text(rig, "test", scratch=5))
+    assert rig.sent == [f"send_raw 0 {KM5_TEST_HEX}", "send_raw ; KM5;", "send_raw 0 KY5;"]
 
 
-def test_readback_mismatch_does_not_transmit() -> None:
-    rig = AnsweringRig("KM5R 5NN K};")
+@pytest.mark.parametrize("answer", ["", "?;", "KM5R 5NN K};"])
+def test_bad_readback_does_not_transmit(answer: str) -> None:
+    rig = AnsweringRig(answer)
     with pytest.raises(ValueError, match="not sent"):
         asyncio.run(send_text(rig, "TEST", scratch=5))
-    assert rig.sent == ["send_cmd KM5TEST};KM5;"]
+    assert rig.sent == [f"send_raw 0 {KM5_TEST_HEX}", "send_raw ; KM5;"]
+
+
+def test_simulated_rig_echoes_write_on_read() -> None:
+    out: list[str] = []
+    asyncio.run(send_text(SimulatedRig(out.append), "TEST", scratch=5))
+    assert out[-1] == "send_raw 0 KY5;"
 
 
 def test_play_memory() -> None:
     rig = AnsweringRig("")
     asyncio.run(play_memory(rig, 7))
     assert rig.sent == ["send_raw 0 KY7;"]
+
+
+@pytest.mark.parametrize(
+    ("answer", "warns"), [("EX04013;", False), ("EX04010;", True), ("?;", True), ("", True)]
+)
+def test_keyer_warning(answer: str, warns: bool) -> None:
+    rig = AnsweringRig(answer)
+    assert (asyncio.run(keyer_warning(rig)) is not None) is warns
+    assert rig.sent == ["send_raw ; EX0401;"]

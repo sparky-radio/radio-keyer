@@ -34,6 +34,7 @@ from radio_keyer.actions import (
     cw_fields,
 )
 from radio_keyer.bands import BANDS, band_by_name
+from radio_keyer.dtr_keyer import MAX_WPM, MIN_WPM, KeyLineName
 from radio_keyer.keypad import DEFAULT_DEVICE_PATH, DEFAULT_LONG_PRESS_S, PressKind
 
 NUM_KEYS: Final[int] = 6
@@ -57,6 +58,8 @@ class CwKeyer(StrEnum):
     """Hamlib send_morse/stop_morse; cw_memory unsupported."""
     YAESU = "yaesu"
     """Radio's memory keyer via KM/KY CAT (FT-891 and similar)."""
+    DTR = "dtr"
+    """App-timed CW on a serial port's DTR/RTS line (rig.dtr)."""
 
 
 # --- config model ---------------------------------------------------------
@@ -85,6 +88,14 @@ class SerialConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class DtrConfig:
+    port: str = ""
+    """Serial port whose line keys CW, e.g. the FT-891 Standard port (if01)."""
+    line: KeyLineName = KeyLineName.DTR
+    wpm: int = 25
+
+
+@dataclass(frozen=True, slots=True)
 class RigConfig:
     backend: RigBackend = RigBackend.RIGCTLD
     rigctld: RigctldConfig = field(default_factory=RigctldConfig)
@@ -92,6 +103,7 @@ class RigConfig:
     cw_keyer: CwKeyer = CwKeyer.HAMLIB
     cw_scratch_memory: int = 5
     """Yaesu: text memory overwritten by `cw:` text (1-5)."""
+    dtr: DtrConfig = field(default_factory=DtrConfig)
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,6 +173,7 @@ class Config:
 
 _RIGCTLD: Final = RigctldConfig()
 _SERIAL: Final = SerialConfig()
+_DTR: Final = DtrConfig()
 _KEYPAD: Final = KeypadConfig()
 _WEB: Final = WebConfig()
 
@@ -245,7 +258,7 @@ def _parse_station(raw: object, path: str) -> StationConfig:
 
 def _parse_rig(raw: object, path: str) -> RigConfig:
     m = _mapping(raw, path)
-    _check_keys(m, {"backend", "rigctld", "serial", "cw_keyer", "cw_scratch_memory"}, path)
+    _check_keys(m, {"backend", "rigctld", "serial", "cw_keyer", "cw_scratch_memory", "dtr"}, path)
     backend_s = _opt_str(m, "backend", path, RigBackend.RIGCTLD.value)
     try:
         backend = RigBackend(backend_s)
@@ -282,12 +295,29 @@ def _parse_rig(raw: object, path: str) -> RigConfig:
         ) from None
     scratch = _opt_int(m, "cw_scratch_memory", path, 5, lo=1, hi=5)
 
+    dp = f"{path}.dtr"
+    dm = _mapping(m.get("dtr"), dp)
+    _check_keys(dm, {"port", "line", "wpm"}, dp)
+    line_s = _opt_str(dm, "line", dp, _DTR.line.value)
+    try:
+        line = KeyLineName(line_s)
+    except ValueError:
+        raise ConfigError(f"{dp}.line: '{line_s}' is not one of: {', '.join(KeyLineName)}") from None
+    dtr = DtrConfig(
+        port=_opt_str(dm, "port", dp, _DTR.port).strip(),
+        line=line,
+        wpm=_opt_int(dm, "wpm", dp, _DTR.wpm, lo=MIN_WPM, hi=MAX_WPM),
+    )
+    if cw_keyer is CwKeyer.DTR and not dtr.port:
+        raise ConfigError(f"{dp}.port: required when cw_keyer is 'dtr'")
+
     return RigConfig(
         backend=backend,
         rigctld=rigctld,
         serial=serial,
         cw_keyer=cw_keyer,
         cw_scratch_memory=scratch,
+        dtr=dtr,
     )
 
 

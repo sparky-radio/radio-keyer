@@ -13,7 +13,7 @@ class FakeRigctld:
     passband_hz: int = 15_000
     received: list[str] = field(default_factory=list)
     morse_supported: bool = True
-    send_cmd_reply: str = "Reply: KM5TEST};"
+    send_raw_answer: str = "OK"
     _server: asyncio.Server | None = None
 
     @property
@@ -67,9 +67,7 @@ class FakeRigctld:
                 return f"send_morse:  {args}\nRPRT {0 if self.morse_supported else -11}\n"
             case "stop_morse":
                 return f"stop_morse:\nRPRT {0 if self.morse_supported else -11}\n"
-            case "send_cmd":
-                return f"send_cmd: {args}\n{self.send_cmd_reply}\nRPRT 0\n"
             case "send_raw":
-                return f"send_raw: {args}\nSend raw answer: OK\nRPRT 0\n"
+                return f"send_raw: {args}\nSend raw answer: {self.send_raw_answer}\nRPRT 0\n"
             case _:
                 return None
