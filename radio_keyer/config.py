@@ -310,6 +310,11 @@ def _parse_rig(raw: object, path: str) -> RigConfig:
     )
     if cw_keyer is CwKeyer.DTR and not dtr.port:
         raise ConfigError(f"{dp}.port: required when cw_keyer is 'dtr'")
+    if backend is RigBackend.SERIAL and dtr.port and dtr.port == serial.port:
+        raise ConfigError(
+            f"{dp}.port: same port as {sp}.port (CAT); use the radio's other port "
+            "(FT-891: Standard port, if01-port0)"
+        )
 
     return RigConfig(
         backend=backend,

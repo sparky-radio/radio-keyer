@@ -132,6 +132,7 @@ def test_config_dtr() -> None:
         "rig: {dtr: {port: x, line: cts}}\n",
         "rig: {dtr: {port: x, wpm: 99}}\n",
         "rig: {dtr: {port: x, speed: 20}}\n",
+        "rig: {backend: serial, serial: {model: 1036, port: /dev/a}, dtr: {port: /dev/a}}\n",
     ]:
         with pytest.raises(ConfigError):
             parse_config_text(bad + BASE)

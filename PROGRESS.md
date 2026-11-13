@@ -172,6 +172,7 @@
 - README section, example config and `check` output updated. 107 tests pass.
 
 ### Next
-- [ ] User (FT-891): set menu 07-12 PC KEYING = DTR (`EX07123;`), BK-IN on, CW mode. Put `cw_keyer: dtr` and `rig.dtr.port` (`if01-port0`) in config.yaml, then test `cw:` and `cw_stop` keys into the dummy load. Check the timing by ear.
+- [x] FT-891 DTR keying works on the air (dummy load): PC KEYING = DTR (`EX07123;`), BK-IN on, `rig.dtr.port` = `if01-port0`. `cw:` and `cw_stop` keys OK.
+- [x] Config check rejects `rig.dtr.port` equal to `rig.serial.port` (the user first set `if00`).
 - [ ] Optionally: panel playback of CH5, and a firmware check for `KY`.
 - [ ] Form-based per-key editor in the web UI.
