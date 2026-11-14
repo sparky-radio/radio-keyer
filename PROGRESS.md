@@ -1,5 +1,17 @@
 # Progress
 
+## Open items
+
+As of 2026-11-14. Details are in the dated log below.
+- [ ] Support other keypads, incl. Bluetooth/2.4 GHz via a device name (plan: session 9, cont.).
+- [ ] WinKeyer CW: config accepts `cw: ... via: winkeyer`, but the runner rejects it ("not implemented yet").
+- [ ] `cw_memory` for radio families other than Yaesu.
+- [ ] Presets for radios other than the FT-891.
+- [ ] `delay_ms` blocks other key presses until it finishes (keypad and web UI share one queue).
+- [ ] FT-891: CAT `KY` answers `?;` (firmware check); front-panel playback of CH5 not tested (session 8).
+- [ ] `icom` raw CAT terminator untested (needs an Icom radio).
+- [ ] Rig setup in the web UI (today only through the YAML editor).
+
 ## 2026-11-11
 
 ### Done
@@ -29,14 +41,16 @@
 
 ### Next
 - [x] User ran `keytest` on real hardware: all 6 key positions correct.
-- [ ] Confirm long-press feel and unplug/replug recovery on hardware.
+- [x] Long-press feel and unplug/replug recovery confirmed on hardware (2026-11-14).
 - [x] Callsign set in config.yaml; `dryrun` verified on hardware.
-- [x] pytest installed into `.venv`; 48 tests pass (2026-11-11).
-- [ ] User: start `rigctld -m 1`, try `status` and `run` with the keypad.
-- [ ] Web UI (status, mapping editor, rig setup).
-- [ ] `serial` backend: app spawns its own rigctld on a private localhost port (reuses RigctldRig).
-- [ ] cw_memory per radio family; WinKeyer / DTR CW.
-- [ ] Verify raw CAT terminators (`0`, `icom`) on a real radio.
+- [x] pytest installed into `.venv` (after session 2, where it was still missing; 48 tests pass).
+- [x] `status` and `run` with the keypad: done on the dummy rig and the FT-891 (sessions 6-8).
+- [x] Web UI: status and YAML editor (session 4), per-key editor (session 9). Rig setup form still open (see Open items).
+- [x] `serial` backend: app spawns its own rigctld on a private localhost port (session 6).
+- [x] DTR CW (session 8). cw_memory done for Yaesu (session 6).
+- [ ] cw_memory for other radio families; WinKeyer CW.
+- [x] Raw CAT terminators `0` and `;` verified on the FT-891 (session 8).
+- [ ] `icom` terminator: needs an Icom radio.
 
 ## 2026-11-11 (session 2): rig backend
 
@@ -54,8 +68,10 @@
 - `set_mode <mode> -1` keeps passband. Dummy rig accepts invalid modes (we validate in config).
 - `stop_morse` / `get_ptt` return -11 on the dummy rig.
 - No generic CW-memory command in Hamlib.
-- pytest was not found in `.venv` (user's earlier run likely used another pytest).
-- [ ] Connect radio and confirm serial port + Hamlib model.
+- pytest was not found in `.venv` (user's earlier run likely used another pytest). Installed afterwards.
+
+### Next
+- [x] Connect radio and confirm serial port + Hamlib model: FT-891, model 1036, `if00-port0` (session 6).
 
 ### Decisions
 - Global fallback is per key **and** press kind (profile defines 1-short only → 1-long comes from global).
@@ -63,7 +79,7 @@
 - Band jumps use a fixed per-band default freq (CW segment) for now; band-stack recall may come later.
 
 ### Open questions
-- Which radio(s) to test against first?
+- Which radio(s) to test against first? → FT-891 (session 6).
 
 ## 2026-11-11 (session 3): naming
 
@@ -90,10 +106,10 @@
 - Smoke test: dryrun starts the UI, port clash gives a clean error, Ctrl+C exits cleanly.
 
 ### Next
-- [ ] User: `radio-keyer dryrun`, open http://localhost:8073/, try keys, profiles, config save.
-- [ ] Form-based mapping editor (per-key action builder) on top of the YAML editor.
-- [ ] `serial` backend: app spawns its own rigctld on a private localhost port.
-- [ ] Still pending: `rigctld -m 1` + `run` with the keypad; long-press feel; replug recovery.
+- [x] User: `radio-keyer dryrun`, open http://localhost:8073/, try keys, profiles, config save (session 5).
+- [x] Form-based mapping editor (per-key action builder) on top of the YAML editor (session 9).
+- [x] `serial` backend: app spawns its own rigctld on a private localhost port (session 6).
+- [x] `run` with the keypad (sessions 6-8); long-press feel and replug recovery confirmed 2026-11-14.
 
 ## 2026-11-11 (session 5): example config
 
@@ -104,7 +120,7 @@
 - Initial commit `6778dbf` (MIT license added); pushed by user.
 
 ### Open question at pause
-- Next: form-based per-key editor in the web UI, or `serial` backend (app spawns private rigctld)?
+- Next: form-based per-key editor in the web UI, or `serial` backend (app spawns private rigctld)? → serial backend (session 6), then the editor (session 9).
 
 ## 2026-11-12 (session 6): serial backend
 
@@ -118,8 +134,8 @@
 - Port check before spawning rigctld: "serial port … not found" / "no permission … dialout" (skipped for the dummy rig and host:port devices). Prompted by an FT-891 test where `port:` still held the `<serial>` placeholder and rigctld just hung. 72/72 tests pass.
 
 ### Next
-- [x] User verified `backend: serial` with the dummy rig (model 1). [ ] Real radio still pending (use a `/dev/serial/by-id/...` path).
-- [ ] Form-based per-key editor in the web UI.
+- [x] User verified `backend: serial` with the dummy rig (model 1), then the FT-891 (below).
+- [x] Form-based per-key editor in the web UI (session 9).
 
 ### FT-891 bring-up (2026-11-12)
 - `backend: serial` works: model 1036, CP2105 `if00-port0` (Enhanced), 38400 baud. `status`, `band`/`mode` keys OK.
@@ -138,7 +154,7 @@
 - `check` prints the CW keyer. README section + example config. 92/92 tests pass.
 
 ### Next
-- [ ] User, on the FT-891 (dummy load): `cw:` key, `cw_memory: 1` key, a paddle memory (6-10). Confirm send_cmd's reply format (run with `-v`) and that read-back works.
+- [x] Tested in session 7 (findings below). `send_cmd` was dropped in session 8, so its reply format no longer matters.
 
 ## 2026-11-12 (session 7): FT-891 keyer test
 
@@ -148,6 +164,9 @@
 - `cw_memory: 1` / `6` (`KY1;`/`KY6;` via `send_raw`) returned no error. Whether they sounded is not confirmed yet.
 - FT-891 caps: timeout 2000 ms, retry 3, post_write_delay 50 ms.
 - Side issue (not the app): SSH drops on ham-laptop came from a flapping switch port; moving the cable fixed it.
+
+### Next
+- [x] Write `KM` without `send_cmd` (session 8: hex `send_raw`).
 
 ## 2026-11-13 (session 8): hex send_raw keyer write
 
@@ -163,7 +182,8 @@
 - `SimulatedRig` answers a `;` read with the latest matching write, so dry runs still play `cw:` text.
 - README Yaesu section updated. 97 tests pass.
 
-- Later the same day: `KY1`/`KY5`/`KY6` still answer `?;` with KEYER TYPE ELEKEY-B (`EX04013;`), REC SETTING enabled (`EX05111;`), CW MEMORY 5 = TEXT (`EX04110;`), BK-IN on (`BI1;`) and mode CW (`MD03;`). So CAT `KY` is unusable on this radio, maybe because of its firmware (not confirmed). Panel playback (REC SETTING → CH5) not tested yet.
+### Findings (later the same day)
+- `KY1`/`KY5`/`KY6` still answer `?;` with KEYER TYPE ELEKEY-B (`EX04013;`), REC SETTING enabled (`EX05111;`), CW MEMORY 5 = TEXT (`EX04110;`), BK-IN on (`BI1;`) and mode CW (`MD03;`). So CAT `KY` is unusable on this radio, maybe because of its firmware (not confirmed). Panel playback (REC SETTING → CH5) not tested yet.
 
 ### DTR keying (`cw_keyer: dtr`)
 - New `radio_keyer/dtr_keyer.py`: Morse table and PARIS timing. A worker thread keys DTR or RTS against absolute deadlines, spinning for the last 2 ms of each wait. Text is queued, so a press returns at once. `stop()` uses a generation counter, so text queued before a stop never plays.
@@ -175,7 +195,7 @@
 - [x] FT-891 DTR keying works on the air (dummy load): PC KEYING = DTR (`EX07123;`), BK-IN on, `rig.dtr.port` = `if01-port0`. `cw:` and `cw_stop` keys OK.
 - [x] Config check rejects `rig.dtr.port` equal to `rig.serial.port` (the user first set `if00`).
 - [ ] Optionally: panel playback of CH5, and a firmware check for `KY`.
-- [ ] Form-based per-key editor in the web UI.
+- [x] Form-based per-key editor in the web UI (session 9).
 
 ## 2026-11-13 (session 8, cont.): FT-891 operating presets (branch `feature/mode-presets`)
 
@@ -191,7 +211,7 @@
 ## 2026-11-14 (session 9): per-key form editor (branch `feature/key-editor`)
 
 ### Done
-- New dependency `ruamel.yaml` (round-trip YAML, keeps comments).
+- New dependency `ruamel.yaml` (0.19.1 installed; round-trip YAML, keeps comments).
 - New `radio_keyer/key_edit.py`: `read_key(text, profile, pos)` returns a key's own short/long action lists. `write_key(...)` replaces, inserts (in key order) or removes one key entry, and can create `global:`.
   - Writes compact forms: a single short action as `N: {action}`, a list as `- {…}` lines.
   - Moves a trailing comment that ruamel attached to the old value (e.g. the comment above the next profile) onto the new one.
@@ -210,6 +230,7 @@
 ### Findings (`docs/PCsensor MK623PRO ... Manuals+.pdf`)
 - The S button switches the keypad's internal key layers (up to 3; red/green/blue light). It sends nothing to the host (user checked). Extra layers and keycodes are set only in the vendor ElfKey app, over USB.
 - Pro model: USB, Bluetooth and 2.4 GHz modes via the connect button (hold 3-5 s to pair). In Bluetooth/2.4 GHz mode there is no `usb-PCsensor_MK623Pro` by-id path.
+- User confirmed long-press feel and unplug/replug recovery on the hardware.
 
 ### Next: support other keypads (not started)
 Goal: any evdev keypad works by config alone. Already generic: `Keypad` takes any device path and keycode map; press detection, grab and reconnect don't depend on the model.
