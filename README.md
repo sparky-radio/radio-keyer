@@ -15,7 +15,7 @@ Each key fires an action — send a CW message, change band/frequency/mode, or s
 - **Band / frequency / mode** actions.
 - **Operating presets** (FT-891): one key sets mode, width, power, AGC, preamp/ATT, NB/NR, keyer speed, BK-IN, mic gain, processor and DATA PTT for CW / Data / SSB. Each setting is read back to confirm it took.
 - **Profiles** — switch layers (e.g. CW contest / band / macros).
-- **Local web UI** — live radio status, key grid with click-to-fire, profile switch, config editor (done; form-based editor planned).
+- **Local web UI** — live radio status, key grid with click-to-fire, profile switch, per-key form editor and raw config editor.
 
 ## Hardware
 
@@ -73,6 +73,7 @@ Listed in [requirements.txt](requirements.txt):
 | `pyserial` | Direct serial CAT, WinKeyer, DTR keying |
 | `fastapi`, `uvicorn` | Local web UI |
 | `pyyaml` | Profiles and key-mapping config |
+| `ruamel.yaml` | Web key editor: rewrites one key in `config.yaml`, keeping comments |
 
 Hamlib is used through `rigctld`/`rigctl` (system package), not pip.
 
@@ -166,6 +167,7 @@ Keypad → actions → rig. If rigctld isn't up yet, it logs a warning and retri
 - **Rig**: live frequency/mode (polled every second while a browser is open), connection indicators for rig and keypad.
 - **Keys**: the active profile's 6 keys (short + long), with keys inherited from `global` tagged. Click a key to fire it, exactly like the keypad.
 - **Profiles**: click to switch.
+- **Key editor**: ✎ on a key opens a form for that key in the active profile (switch to any profile, or `global`, in the form). Short and long press each take a list of actions run top to bottom; add, remove and reorder rows, each with fields for its action type. An empty press in a profile falls back to `global`. *Save & apply* validates the whole config, writes it (previous version → `config.yaml.bak`) and applies it. Only that key's lines change in `config.yaml`: comments and the formatting of everything else are kept.
 - **Activity**: the same log as the terminal.
 - **Config**: edit `config.yaml` in place. *Check* validates; *Save & apply* (Ctrl+S) validates, writes the file (previous version → `config.yaml.bak`) and applies it immediately: mappings, profiles, callsign and rig connection. Changes to `keypad:` or `web:` need a restart (a banner says so). Saving from the UI keeps your comments, because it saves the text exactly as typed.
 
@@ -332,7 +334,8 @@ radio_keyer/
   ft891.py            FT-891 operating presets (CAT settings + read-back)
   dtr_keyer.py        app-timed CW on a serial DTR/RTS line
   yaesu_keyer.py      Yaesu memory keyer (KM/KY)
-  web.py              FastAPI web UI: state/press/profile/config API + WebSocket
+  web.py              FastAPI web UI: state/press/profile/config/key API + WebSocket
+  key_edit.py         read/rewrite one key in config.yaml text (ruamel round-trip)
   static/             web UI page (index.html, app.js, style.css; no build step)
 tests/                pytest suite (incl. fake rigctld + real dummy-rig test)
 ```

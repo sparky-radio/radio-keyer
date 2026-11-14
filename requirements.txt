@@ -10,5 +10,6 @@ uvicorn[standard]>=0.29
 
 # Config (profiles, key mappings)
 pyyaml>=6.0
+ruamel.yaml>=0.18     # web key editor: edits config.yaml keeping comments
 
 # Note: Hamlib is used via rigctld/rigctl (system package), not pip.

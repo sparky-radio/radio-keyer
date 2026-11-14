@@ -186,4 +186,21 @@
 
 ### Next
 - [x] cw/data/ssb presets verified on the FT-891 (2026-11-13), bound to long presses on Bands keys 2-4.
-- [ ] Merge `feature/mode-presets` once verified.
+- [x] Merged `feature/mode-presets` (PR #1).
+
+## 2026-11-14 (session 9): per-key form editor (branch `feature/key-editor`)
+
+### Done
+- New dependency `ruamel.yaml` (round-trip YAML, keeps comments).
+- New `radio_keyer/key_edit.py`: `read_key(text, profile, pos)` returns a key's own short/long action lists. `write_key(...)` replaces, inserts (in key order) or removes one key entry, and can create `global:`.
+  - Writes compact forms: a single short action as `N: {action}`, a list as `- {…}` lines.
+  - Moves a trailing comment that ruamel attached to the old value (e.g. the comment above the next profile) onto the new one.
+  - ruamel normalizes some untouched formatting (`cw:   {…}` alignment under `presets:`). So the edited lines are found by diffing ruamel's dump before and after the edit, and only those are patched into the original text. Everything else stays byte-exact.
+  - A save with no changes returns the text unchanged.
+- `web.py`: `GET /api/schema` (profiles, profile targets, presets, bands, modes, cw via), `GET/PUT /api/keys/{profile}/{pos}`. A PUT is read-modify-validate-write under the save lock, keeps `.bak` and applies at once.
+- UI: ✎ on each key card opens a dialog with a profile picker and short/long action lists. Rows have typed fields and can be added, removed and reordered. Server errors show in the dialog. If the raw YAML editor has unsaved edits, the user is warned instead of the editor reloading over them.
+- README updated. 138 tests pass.
+
+### Next
+- [x] Editor tried in the browser (2026-11-14): works.
+- [ ] Commit and push `feature/key-editor`; user opens the PR.

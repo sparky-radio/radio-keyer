@@ -36,7 +36,7 @@
         <nav class="profiles" id="profiles" aria-label="Profiles"></nav>
       </div>
       <div class="keys" id="keys"></div>
-      <p class="muted small">Click = short press, ⏵⏵ = long press. <span class="tag">global</span> = from the global profile.</p>
+      <p class="muted small">Click = short press, ⏵⏵ = long press. <span class="tag">global</span> = from the global profile. ✎ = edit the key.</p>
     </section>
 
     <section class="card log-card">
@@ -60,5 +60,18 @@
       <div class="cfg-result" id="cfg-result" hidden></div>
     </section>
   </main>
+
+  <dialog id="ke" class="editor" aria-labelledby="ke-title">
+    <div class="section-head">
+      <h2 id="ke-title">Edit key</h2>
+      <label class="small">Profile <select id="ke-profile"></select></label>
+    </div>
+    <div id="ke-presses"></div>
+    <div class="cfg-result" id="ke-result" hidden></div>
+    <div class="buttons editor-foot">
+      <button type="button" class="ghost" id="ke-cancel">Cancel</button>
+      <button type="button" class="primary" id="ke-save">Save &amp; apply</button>
+    </div>
+  </dialog>
 </body>
 </html>

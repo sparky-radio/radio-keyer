@@ -309,3 +309,53 @@ def test_log_records_reach_clients(tmp_path: Path, level: str) -> None:
     env.hub.add_log(record)
     msg = queue.get_nowait()
     assert msg["type"] == "log" and msg["msg"] == "hi there" and msg["level"] == level
+
+
+# --- per-key editor -------------------------------------------------------
+
+
+def test_schema_lists_choices(tmp_path: Path) -> None:
+    status, schema = run(Env(tmp_path).request("GET", "/api/schema"))
+    assert status == 200
+    assert schema["profiles"] == ["global", "main", "other"]
+    assert schema["profile_targets"] == ["next", "prev", "main", "other"]
+    assert "20m" in schema["bands"] and "CW" in schema["modes"]
+
+
+def test_get_key(tmp_path: Path) -> None:
+    env = Env(tmp_path)
+    status, key = run(env.request("GET", "/api/keys/main/2"))
+    assert status == 200
+    assert key["short"] == [{"freq": 7074000, "mode": "PKTUSB"}, {"cw": "TEST"}]
+    assert key["long"] is None
+    assert run(env.request("GET", "/api/keys/nope/1"))[0] == 404
+    assert run(env.request("GET", "/api/keys/main/9"))[0] == 422
+
+
+def test_put_key_saves_and_applies(tmp_path: Path) -> None:
+    env = Env(tmp_path)
+    body = {"short": [{"cw": "TU {call}"}], "long": [{"band": "20m"}]}
+    status, res = run(env.request("PUT", "/api/keys/main/3", body))
+    assert status == 200 and res["ok"] is True
+    assert (tmp_path / "config.yaml.bak").read_text() == CONFIG
+    run(env.request("POST", "/api/press", {"position": 3}))
+    assert env.out == ['send_morse "TU K5AQ"']
+    assert run(env.request("GET", "/api/keys/main/3"))[1]["long"] == [{"band": "20m"}]
+
+
+def test_put_invalid_key_writes_nothing(tmp_path: Path) -> None:
+    env = Env(tmp_path)
+    status, res = run(env.request("PUT", "/api/keys/main/1", {"short": [{"band": "3m"}]}))
+    assert status == 422 and "profiles.main.keys.1.short.band" in res["error"]
+    status, res = run(env.request("PUT", "/api/keys/main/1", {"short": [{"cw": None}]}))
+    assert status == 422 and "expected non-empty text" in res["error"]
+    assert env.path.read_text() == CONFIG
+    assert run(env.request("PUT", "/api/keys/nope/1", {"short": None}))[0] == 404
+
+
+def test_put_key_cross_origin_refused(tmp_path: Path) -> None:
+    env = Env(tmp_path)
+    status, _ = run(
+        env.request("PUT", "/api/keys/main/1", {"short": None}, origin="http://evil.example")
+    )
+    assert status == 403 and env.path.read_text() == CONFIG
