@@ -30,8 +30,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.middleware.base import RequestResponseEndpoint
 
-from radio_keyer.actions import Binding
-from radio_keyer.config import NUM_KEYS, Config, ConfigError, parse_config_text
+from radio_keyer.actions import CW_FIELDS, HAMLIB_MODES, PROFILE_NEXT, PROFILE_PREV, Binding, CwVia
+from radio_keyer.bands import BANDS
+from radio_keyer.config import GLOBAL_PROFILE, NUM_KEYS, Config, ConfigError, parse_config_text
+from radio_keyer.key_edit import KeyActions, UnknownProfileError, read_key, write_key
 from radio_keyer.keypad import KeyPress, PressKind
 from radio_keyer.rig import Rig, RigConnectionError, RigError
 from radio_keyer.runner import Runner
@@ -63,6 +65,16 @@ class ProfileIn(BaseModel):
 
 class ConfigIn(BaseModel):
     text: str = Field(max_length=MAX_CONFIG_BYTES)
+
+
+type ActionIn = dict[str, str | int | bool | None]
+
+
+class KeyIn(BaseModel):
+    """A key's own bindings; null or [] = not set in this profile."""
+
+    short: list[ActionIn] | None = Field(default=None, max_length=50)
+    long: list[ActionIn] | None = Field(default=None, max_length=50)
 
 
 # --- hub ------------------------------------------------------------------
@@ -213,32 +225,59 @@ class WebHub:
     def check_config(self, text: str) -> Config:
         return parse_config_text(text, source=self.config_path.name)
 
+    def schema(self) -> Json:
+        """Choices for the per-key form."""
+        config = self.runner.config
+        return {
+            "type": "schema",
+            "profiles": [GLOBAL_PROFILE, *config.profile_names],
+            "profile_targets": [PROFILE_NEXT, PROFILE_PREV, *config.profile_names],
+            "presets": list(config.presets),
+            "bands": ["up", "down", *(b.name for b in BANDS)],
+            "modes": sorted(HAMLIB_MODES),
+            "cw_via": [v.value for v in CwVia],
+            "cw_fields": sorted(CW_FIELDS),
+            "num_keys": NUM_KEYS,
+        }
+
+    def read_key(self, profile: str, position: int) -> KeyActions:
+        return read_key(self.read_config(), profile, position)
+
+    async def save_key(self, profile: str, position: int, body: KeyIn) -> list[str]:
+        """Rewrite one key in config.yaml (comments kept), then validate and apply."""
+        async with self._save_lock:
+            text = write_key(self.read_config(), profile, position, body.short, body.long)
+            return await self._save_locked(text)
+
     async def save_config(self, text: str) -> list[str]:
         """Validate, write (keeping a .bak), and apply. Returns restart-required notes."""
         async with self._save_lock:
-            new = self.check_config(text)
-            old = self.runner.config
-            new_rig: Rig | None = None
-            if new.rig != old.rig and self._rig_factory is not None:
-                new_rig = self._rig_factory(new)  # ConfigError if unsupported: nothing written
-            _write_with_backup(self.config_path, text)
-            log.info("Config saved to %s", self.config_path)
+            return await self._save_locked(text)
 
-            self.runner.reload(new)
-            if new_rig is not None:
-                old_rig = await self.runner.replace_rig(new_rig)
-                await old_rig.close()
-                log.info("Rig → %s", self._describe_rig(new))
+    async def _save_locked(self, text: str) -> list[str]:
+        new = self.check_config(text)
+        old = self.runner.config
+        new_rig: Rig | None = None
+        if new.rig != old.rig and self._rig_factory is not None:
+            new_rig = self._rig_factory(new)  # ConfigError if unsupported: nothing written
+        _write_with_backup(self.config_path, text)
+        log.info("Config saved to %s", self.config_path)
 
-            notes = list(self.restart_required)
-            if new.keypad != old.keypad and "keypad" not in notes:
-                notes.append("keypad")
-            if new.web != old.web and "web" not in notes:
-                notes.append("web")
-            self.restart_required = notes
-            self.publish_state()
-            await self.poll_status()
-            return notes
+        self.runner.reload(new)
+        if new_rig is not None:
+            old_rig = await self.runner.replace_rig(new_rig)
+            await old_rig.close()
+            log.info("Rig → %s", self._describe_rig(new))
+
+        notes = list(self.restart_required)
+        if new.keypad != old.keypad and "keypad" not in notes:
+            notes.append("keypad")
+        if new.web != old.web and "web" not in notes:
+            notes.append("web")
+        self.restart_required = notes
+        self.publish_state()
+        await self.poll_status()
+        return notes
 
 
 def _write_with_backup(path: Path, text: str) -> None:
@@ -350,6 +389,33 @@ def create_app(hub: WebHub, *, allowed_hosts: frozenset[str] | None = LOOPBACK_H
     async def put_config(body: ConfigIn) -> JSONResponse:
         try:
             notes = await hub.save_config(body.text)
+        except ConfigError as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=422)
+        except OSError as exc:
+            return JSONResponse({"ok": False, "error": f"cannot write config: {exc}"}, status_code=500)
+        return JSONResponse({"ok": True, "restart_required": notes})
+
+    @app.get("/api/schema")
+    async def get_schema() -> Json:
+        return hub.schema()
+
+    @app.get("/api/keys/{profile}/{position}")
+    async def get_key(profile: str, position: int) -> Json:
+        try:
+            return {"profile": profile, "position": position, **hub.read_key(profile, position)}
+        except UnknownProfileError as exc:
+            raise HTTPException(404, str(exc)) from None
+        except ConfigError as exc:
+            raise HTTPException(422, str(exc)) from None
+        except OSError as exc:
+            raise HTTPException(500, f"cannot read config: {exc.strerror}") from None
+
+    @app.put("/api/keys/{profile}/{position}")
+    async def put_key(profile: str, position: int, body: KeyIn) -> JSONResponse:
+        try:
+            notes = await hub.save_key(profile, position, body)
+        except UnknownProfileError as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=404)
         except ConfigError as exc:
             return JSONResponse({"ok": False, "error": str(exc)}, status_code=422)
         except OSError as exc:
