@@ -203,4 +203,19 @@
 
 ### Next
 - [x] Editor tried in the browser (2026-11-14): works.
-- [ ] Commit and push `feature/key-editor`; user opens the PR.
+- [x] Committed and pushed `feature/key-editor`; merged via PR #2 (bbae3a3).
+
+## 2026-11-14 (session 9, cont.): MK623Pro manual; generic keypad support (planned)
+
+### Findings (`docs/PCsensor MK623PRO ... Manuals+.pdf`)
+- The S button switches the keypad's internal key layers (up to 3; red/green/blue light). It sends nothing to the host (user checked). Extra layers and keycodes are set only in the vendor ElfKey app, over USB.
+- Pro model: USB, Bluetooth and 2.4 GHz modes via the connect button (hold 3-5 s to pair). In Bluetooth/2.4 GHz mode there is no `usb-PCsensor_MK623Pro` by-id path.
+
+### Next: support other keypads (not started)
+Goal: any evdev keypad works by config alone. Already generic: `Keypad` takes any device path and keycode map; press detection, grab and reconnect don't depend on the model.
+- [ ] Config `keypad.keys`: list of key names in position order (e.g. `[KEY_F, KEY_E, KEY_D, KEY_C, KEY_B, KEY_A]`). The key count is the list length. The default stays the MK623Pro map. Optional `keypad.columns` for the web grid (default 3).
+- [ ] `keypad.device` accepts a path or `name: "..."` (matched against the evdev device name). This also covers Bluetooth/2.4 GHz mode.
+- [ ] `radio-keyer keytest --list` lists input devices (name, path). A new `radio-keyer learn` asks for each key in turn and prints a ready-to-paste `keypad:` block.
+- [ ] Replace the fixed `NUM_KEYS = 6` with the configured count: config validation, `key_edit`, web press API, key grid and editor.
+- [ ] Tests; README section "Using another keypad"; memory.
+- Limit: each key must send one distinct key code. Keypads that send combos or media keys need reprogramming in their vendor tool.
