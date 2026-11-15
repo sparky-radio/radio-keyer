@@ -8,7 +8,7 @@
 #
 # Actions:
 #   cw: "text"            send CW (placeholders: {call}); optional via: cat | winkeyer | dtr
-#   cw_memory: N          play the radio's stored CW memory N (needs rig.cw_keyer: yaesu)
+#   cw_memory: N          play the radio's stored CW memory N (needs rig.cw_keyer: yaesu or icom)
 #   cw_stop: true         stop sending CW
 #   band: 20m | up | down
 #   freq: 14074000        Hz; optional mode: on the same line
@@ -33,8 +33,9 @@ rig:
     model: 3073               # Hamlib model number, see `rigctl -l` (3073 = IC-7300)
     port: /dev/ttyUSB0
     baud: 19200
-  cw_keyer: hamlib            # hamlib (send_morse) | yaesu (radio's memory keyer) | dtr (app keys rig.dtr)
+  cw_keyer: hamlib            # hamlib (send_morse) | yaesu (radio's memory keyer) | icom (CI-V 17) | dtr (app keys rig.dtr)
   cw_scratch_memory: 5        # yaesu: text memory 1-5 that `cw:` text overwrites
+  civ_address: 0x94           # icom: the radio's CI-V address (IC-7300 default 94h)
   dtr:                        # cw_keyer: dtr, or `cw: ... via: dtr`
     # port: /dev/serial/by-id/...-if01-port0   # required for DTR; FT-891 = Standard port
     line: dtr                 # dtr | rts (FT-891 menu 07-12 PC KEYING must match)

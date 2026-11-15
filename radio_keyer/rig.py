@@ -300,6 +300,7 @@ class SimulatedRig(Rig):
         self.mode = mode
         self.passband_hz = passband_hz
         self._cat_writes: list[str] = []
+        self._civ_writes: list[bytes] = []
 
     async def close(self) -> None:
         return None
@@ -329,6 +330,8 @@ class SimulatedRig(Rig):
     async def send_raw(self, data: bytes, *, binary: bool, terminator: str | None = None) -> str:
         term, cmd = raw_args(data, binary=binary, terminator=terminator)
         self._out(f"send_raw {term} {cmd}")
+        if term == "icom":
+            return self._civ_answer(data)
         text = data.decode("ascii", errors="replace")
         if term != ";":
             self._cat_writes.append(text)
@@ -338,3 +341,18 @@ class SimulatedRig(Rig):
         return next(
             (w for w in reversed(self._cat_writes) if w.startswith(prefix) and w != text), ""
         )
+
+    def _civ_answer(self, data: bytes) -> str:
+        """Icom CI-V: a read gets the latest longer write it prefixes (like a radio), else OK."""
+        if len(data) < 6 or data[:2] != b"\xfe\xfe" or data[-1] != 0xFD:
+            return ""
+        addr, controller, body = data[2], data[3], data[4:-1]
+        stored = None
+        if body[0] != 0x17:  # 17 = send CW: always a write, one text may prefix another
+            stored = next(
+                (w for w in reversed(self._civ_writes) if w.startswith(body) and w != body), None
+            )
+        if stored is None and body[0] != 0x17:
+            self._civ_writes.append(body)
+        reply = b"\xfe\xfe" + bytes([controller, addr]) + (stored or b"\xfb") + b"\xfd"
+        return " ".join(f"0x{b:02X}" for b in reply)

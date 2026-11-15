@@ -36,7 +36,7 @@ from radio_keyer.actions import (
 )
 from radio_keyer.bands import BANDS, band_by_name
 from radio_keyer.dtr_keyer import MAX_WPM, MIN_WPM, KeyLineName
-from radio_keyer import ft891
+from radio_keyer import civ, ft891, icom_keyer
 from radio_keyer.ft891 import Preset
 from radio_keyer.keypad import DEFAULT_DEVICE_PATH, DEFAULT_LONG_PRESS_S, PressKind
 
@@ -45,6 +45,7 @@ GLOBAL_PROFILE: Final[str] = "global"
 _RESERVED_PROFILE_NAMES: Final[frozenset[str]] = frozenset({GLOBAL_PROFILE, PROFILE_NEXT, PROFILE_PREV})
 _MAX_DELAY_MS: Final[int] = 60_000
 _MAX_CW_MEMORY: Final[int] = 10
+"""Yaesu: 5 text + 5 message memories; the Icom keyer has icom_keyer.MEMORIES."""
 
 
 class ConfigError(ValueError):
@@ -63,6 +64,8 @@ class CwKeyer(StrEnum):
     """Radio's memory keyer via KM/KY CAT (FT-891 and similar)."""
     DTR = "dtr"
     """App-timed CW on a serial port's DTR/RTS line (rig.dtr)."""
+    ICOM = "icom"
+    """CI-V `17` send CW (IC-7300 and similar); cw_memory reads M1-M8 and sends the text."""
 
 
 # --- config model ---------------------------------------------------------
@@ -106,6 +109,8 @@ class RigConfig:
     cw_keyer: CwKeyer = CwKeyer.HAMLIB
     cw_scratch_memory: int = 5
     """Yaesu: text memory overwritten by `cw:` text (1-5)."""
+    civ_address: int = civ.DEFAULT_ADDRESS
+    """Icom: the radio's CI-V address (IC-7300 default 94h)."""
     dtr: DtrConfig = field(default_factory=DtrConfig)
 
 
@@ -219,7 +224,8 @@ def parse_config(raw: object) -> Config:
     web = _parse_web(top.get("web"), "web")
     presets = _parse_presets(top.get("presets"), "presets")
 
-    ctx = _Context(station=station)
+    max_memory = icom_keyer.MEMORIES if rig.cw_keyer is CwKeyer.ICOM else _MAX_CW_MEMORY
+    ctx = _Context(station=station, max_cw_memory=max_memory)
     global_profile = _parse_profile(GLOBAL_PROFILE, top.get(GLOBAL_PROFILE), GLOBAL_PROFILE, ctx)
 
     raw_profiles = _mapping(top.get("profiles"), "profiles", required=True)
@@ -255,6 +261,7 @@ def parse_config(raw: object) -> Config:
 @dataclass(slots=True)
 class _Context:
     station: StationConfig
+    max_cw_memory: int = _MAX_CW_MEMORY
     profile_refs: list[tuple[str, str]] = field(default_factory=list)
     """(target, path) of every ProfileAction, validated once all profiles are known."""
     preset_refs: list[tuple[str, str]] = field(default_factory=list)
@@ -272,7 +279,9 @@ def _parse_station(raw: object, path: str) -> StationConfig:
 
 def _parse_rig(raw: object, path: str) -> RigConfig:
     m = _mapping(raw, path)
-    _check_keys(m, {"backend", "rigctld", "serial", "cw_keyer", "cw_scratch_memory", "dtr"}, path)
+    _check_keys(
+        m, {"backend", "rigctld", "serial", "cw_keyer", "cw_scratch_memory", "civ_address", "dtr"}, path
+    )
     backend_s = _opt_str(m, "backend", path, RigBackend.RIGCTLD.value)
     try:
         backend = RigBackend(backend_s)
@@ -308,6 +317,7 @@ def _parse_rig(raw: object, path: str) -> RigConfig:
             f"{path}.cw_keyer: '{keyer_s}' is not one of: {', '.join(CwKeyer)}"
         ) from None
     scratch = _opt_int(m, "cw_scratch_memory", path, 5, lo=1, hi=5)
+    civ_address = _parse_civ_address(m.get("civ_address"), f"{path}.civ_address")
 
     dp = f"{path}.dtr"
     dm = _mapping(m.get("dtr"), dp)
@@ -336,8 +346,31 @@ def _parse_rig(raw: object, path: str) -> RigConfig:
         serial=serial,
         cw_keyer=cw_keyer,
         cw_scratch_memory=scratch,
+        civ_address=civ_address,
         dtr=dtr,
     )
+
+
+def _parse_civ_address(raw: object, path: str) -> int:
+    """`0x94` (YAML reads it as 148), `"94h"` or `"94"` (hex, like the radio's menu)."""
+    if raw is None:
+        return civ.DEFAULT_ADDRESS
+    if isinstance(raw, bool):
+        raise ConfigError(f"{path}: expected a hex address like 0x94 or '94h'")
+    if isinstance(raw, int):
+        value = raw
+    elif isinstance(raw, str):
+        text = raw.strip().lower().removeprefix("0x").removesuffix("h")
+        try:
+            value = int(text, 16)
+        except ValueError:
+            raise ConfigError(f"{path}: '{raw}' is not a hex address like 0x94 or '94h'") from None
+    else:
+        raise ConfigError(f"{path}: expected a hex address like 0x94 or '94h', got {_tname(raw)}")
+    try:
+        return civ.check_address(value)
+    except ValueError as exc:
+        raise ConfigError(f"{path}: {exc}") from None
 
 
 def _parse_keypad(raw: object, path: str) -> KeypadConfig:
@@ -506,7 +539,7 @@ def _parse_action(raw: object, path: str, ctx: _Context) -> Action:
                 raise ConfigError(f"{path}.via: '{via_s}' is not one of: {', '.join(CwVia)}") from None
             return CwAction(text=text, via=via)
         case "cw_memory":
-            return CwMemoryAction(slot=_req_int(value, vpath, lo=1, hi=_MAX_CW_MEMORY))
+            return CwMemoryAction(slot=_req_int(value, vpath, lo=1, hi=ctx.max_cw_memory))
         case "cw_stop":
             if value is not True and value is not None:
                 raise ConfigError(f"{vpath}: use 'cw_stop: true'")

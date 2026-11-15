@@ -116,6 +116,54 @@ def test_yaesu_cw_stop_is_unsupported() -> None:
     assert out == [] and ok == [False]
 
 
+ICOM_CONFIG = CONFIG.replace(
+    "station: {callsign: K5AQ}\n", "station: {callsign: K5AQ}\nrig: {cw_keyer: icom, civ_address: 0x98}\n"
+)
+
+
+def run_icom(presses: list[KeyPress], rig: SimulatedRig | None = None) -> tuple[list[str], list[bool]]:
+    out: list[str] = []
+    rig = rig or SimulatedRig(out.append)
+    rig._out = out.append
+    runner = Runner(parse_config_text(ICOM_CONFIG), rig)
+
+    async def main() -> list[bool]:
+        return [await runner.handle_press(p) for p in presses]
+
+    return out, asyncio.run(main())
+
+
+def test_icom_cw_text_uses_civ_17() -> None:
+    out, ok = run_icom([press(1)])
+    assert out == ["send_raw icom 0xFE;0xFE;0x98;0xE0;0x17;0x43;0x51;0x20;0x4B;0x35;0x41;0x51;0xFD"]
+    assert ok == [True]
+
+
+def test_icom_cw_stop_sends_17_ff() -> None:
+    out, ok = run_icom([press(5)])
+    assert out[0] == "send_raw icom 0xFE;0xFE;0x98;0xE0;0x17;0xFF;0xFD"
+    assert out[1].startswith("send_raw icom 0xFE;0xFE;0x98;0xE0;0x17;0x4E")  # then "NEVER"
+    assert ok == [True]
+
+
+def test_icom_cw_memory_reads_and_sends() -> None:
+    out: list[str] = []
+    rig = SimulatedRig(out.append)
+    asyncio.run(rig.send_raw(bytes.fromhex("FEFE98E01A0201") + b"TU" + b"\xfd", binary=True))
+    out.clear()
+    out, ok = run_icom([press(4)], rig)
+    assert out == [
+        "send_raw icom 0xFE;0xFE;0x98;0xE0;0x1A;0x02;0x01;0xFD",
+        "send_raw icom 0xFE;0xFE;0x98;0xE0;0x17;0x54;0x55;0xFD",
+    ]
+    assert ok == [True]
+
+
+def test_icom_cw_memory_empty_fails() -> None:
+    out, ok = run_icom([press(4)])  # never written: the simulated rig answers OK, not data
+    assert ok == [False]
+
+
 DTR_CONFIG = CONFIG.replace(
     "station: {callsign: K5AQ}\n",
     "station: {callsign: K5AQ}\nrig: {cw_keyer: dtr, dtr: {port: /dev/null, wpm: 50}}\n",

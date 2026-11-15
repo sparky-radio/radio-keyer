@@ -254,10 +254,12 @@ Goal: any evdev keypad works by config alone. Already generic: `Keypad` takes an
 
 ### Plan
 Phase 1: CI-V layer and Icom CW keyer
-- [ ] `radio_keyer/civ.py`: build frames for a configured address; parse `send_raw` answers into frames; drop echoes (to = radio) and Transceive broadcasts (to = 00h); OK/NG/data reply. Hamlib's text format for binary answers is unverified, so the parser accepts hex with or without `0x`.
-- [ ] `radio_keyer/icom_keyer.py`: `cw:` text → `17` in ≤30-character chunks split at word gaps, each must answer OK; `cw_stop` → `17 FF`; `cw_memory N` (1-8) → read M`N` with `1A 02`, then send its text with `17`. A memory holding the `*` contest counter is refused, since the app can't count. `keyer_warning`: read break-in (`16 47`) and warn when it is OFF.
-- [ ] Config: `rig.cw_keyer: icom`, `rig.civ_address` (default 0x94). `cw_memory` limited to 1-8 with the Icom keyer.
-- [ ] Wire into runner, `check`, `status`; tests through SimulatedRig and the fake rigctld.
+- [x] `radio_keyer/civ.py`: build frames for a configured address; parse `send_raw` answers into frames; drop echoes (to = radio) and Transceive broadcasts (to = 00h); OK/NG/data reply. Hamlib's text format for binary answers is unverified, so the parser accepts hex with or without `0x`.
+- [x] `radio_keyer/icom_keyer.py`: `cw:` text → `17` in ≤30-character chunks split at word gaps, each must answer OK; `cw_stop` → `17 FF`; `cw_memory N` (1-8) → read M`N` with `1A 02`, then send its text with `17`. A memory holding the `*` contest counter is refused, since the app can't count. `keyer_warning`: read break-in (`16 47`) and warn when it is OFF.
+- [x] Config: `rig.cw_keyer: icom`, `rig.civ_address` (default 0x94). `cw_memory` limited to 1-8 with the Icom keyer.
+- [x] Wire into runner, `check`, `status`; tests through SimulatedRig and the fake rigctld.
+
+- Done: SimulatedRig answers CI-V frames (a read returns the latest longer write it prefixes, else OK), so dry runs work. README section "CW on Icom radios", example config. 181 tests pass.
 
 Phase 2: presets for the IC-7300
 - [ ] `rig.radio: ft891 | ic7300` (default ft891, so existing configs keep working). Preset ranges and choices are checked per radio.

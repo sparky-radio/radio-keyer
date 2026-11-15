@@ -106,7 +106,10 @@ def test_cw_render() -> None:
         ("profiles: {a: {keys: {1: {short: []}}}}", "empty action list"),
         ("profiles: {global: {}}", "reserved name"),
         ("rig: {backend: serial}\nprofiles: {a: {}}", "rig.serial.model: required"),
-        ("rig: {cw_keyer: icom}\nprofiles: {a: {}}", "rig.cw_keyer"),
+        ("rig: {cw_keyer: winkeyer}\nprofiles: {a: {}}", "rig.cw_keyer"),
+        ("rig: {civ_address: 0x01}\nprofiles: {a: {}}", "rig.civ_address"),
+        ("rig: {civ_address: zz}\nprofiles: {a: {}}", "rig.civ_address"),
+        ("rig: {cw_keyer: icom}\nprofiles: {a: {keys: {1: {cw_memory: 9}}}}", "9 out of range 1..8"),
         ("rig: {cw_scratch_memory: 6}\nprofiles: {a: {}}", "rig.cw_scratch_memory"),
         ("rig: {backend: telnet}\nprofiles: {a: {}}", "rig.backend"),
         ("keypad: {grab: yes please}\nprofiles: {a: {}}", "keypad.grab"),
@@ -124,3 +127,13 @@ def test_errors(snippet: str, message: str) -> None:
 def test_missing_file(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="file not found"):
         load_config(tmp_path / "nope.yaml")
+
+
+@pytest.mark.parametrize(("value", "expected"), [("0x94", 0x94), ("'94h'", 0x94), ("'A4'", 0xA4), ("148", 0x94)])
+def test_civ_address_forms(value: str, expected: int) -> None:
+    cfg = parse_config_text(f"rig: {{cw_keyer: icom, civ_address: {value}}}\nprofiles: {{a: {{}}}}")
+    assert cfg.rig.civ_address == expected
+
+
+def test_civ_address_default() -> None:
+    assert parse_config_text("profiles: {a: {}}").rig.civ_address == 0x94

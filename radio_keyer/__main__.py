@@ -10,7 +10,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from radio_keyer import yaesu_keyer
+from radio_keyer import civ, icom_keyer, yaesu_keyer
 from radio_keyer.actions import Binding
 from radio_keyer.config import Config, ConfigError, CwKeyer, Profile, RigBackend, load_config
 from radio_keyer.keypad import DEFAULT_DEVICE_PATH, DEFAULT_LONG_PRESS_S, Keypad, key_name
@@ -95,6 +95,8 @@ def check(config: Config) -> None:
     rc = config.rig
     if rc.cw_keyer is CwKeyer.YAESU:
         print(f"CW:       Yaesu memory keyer (cw: text uses memory {rc.cw_scratch_memory})")
+    elif rc.cw_keyer is CwKeyer.ICOM:
+        print(f"CW:       Icom CI-V keyer (address {rc.civ_address:02X}h)")
     elif rc.cw_keyer is CwKeyer.DTR:
         d = rc.dtr
         print(f"CW:       {d.line.value.upper()} keying on {d.port} at {d.wpm} WPM")
@@ -135,7 +137,9 @@ async def status(config: Config) -> int:
         st = await rig.status()
         if config.rig.cw_keyer is CwKeyer.YAESU:
             warning = await yaesu_keyer.keyer_warning(rig)
-    except (RigConnectionError, RigError) as exc:
+        elif config.rig.cw_keyer is CwKeyer.ICOM:
+            warning = await icom_keyer.keyer_warning(rig, config.rig.civ_address)
+    except (RigConnectionError, RigError, civ.CivError) as exc:
         print(f"Rig error: {exc}", file=sys.stderr)
         return 1
     finally:

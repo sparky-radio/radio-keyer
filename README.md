@@ -11,7 +11,7 @@ Each key fires an action — send a CW message, change band/frequency/mode, or s
 - **Two rig connection modes**
   - `rigctld` (TCP) — share the radio with WSJT-X, fldigi, loggers
   - Direct serial — app owns the port (`/dev/ttyUSB*` / `/dev/ttyACM*`)
-- **CW**: Hamlib `send_morse`, the Yaesu memory keyer (CAT), or app-timed DTR/RTS keying (verified on the FT-891). WinKeyer is planned.
+- **CW**: Hamlib `send_morse`, the Yaesu memory keyer (CAT), Icom CI-V send CW (IC-7300; not yet tested on a radio), or app-timed DTR/RTS keying (verified on the FT-891). WinKeyer is planned.
 - **Band / frequency / mode** actions.
 - **Operating presets** (FT-891): one key sets mode, width, power, AGC, preamp/ATT, NB/NR, keyer speed, BK-IN, mic gain, processor and DATA PTT for CW / Data / SSB. Each setting is read back to confirm it took.
 - **Profiles** — switch layers (e.g. CW contest / band / macros).
@@ -221,6 +221,24 @@ rig:
 - The text goes to the radio hex-encoded via `send_raw` because it contains spaces. Hamlib's `send_cmd` can't be used: 4.5.5 waits for a CR/LF terminator that Yaesu CAT never sends.
 - The FT-891 factory text in memory 5 (`R 5NN K}`) gets overwritten.
 
+### CW on Icom radios (IC-7300): `cw_keyer: icom`
+
+Untested on a radio so far. Commands are from the IC-7300 manual, section 19.
+
+```yaml
+rig:
+  backend: serial
+  serial: {model: 3073, port: /dev/serial/by-id/usb-Silicon_Labs_CP2102_..._IC-7300_...-if00-port0, baud: 19200}
+  cw_keyer: icom
+  civ_address: 0x94        # the radio's CI-V Address (default 94h); "94h" also works
+```
+
+- `cw: "CQ TEST {call}"` sends CI-V `17` with the text. The radio takes 30 characters per command, so longer text goes as several commands, split at word gaps. Each must be answered OK. Text is uppercased. Characters: A-Z, 0-9, space and `/ ? . - , : ' ( ) = + " @`. `^` joins characters with no gap (e.g. `^AR`).
+- `cw_memory: 1`–`8` reads keyer memory M1–M8 (`1A 02`) and sends its text with `17`. CI-V has no command to play a memory. A memory with the contest counter `*` is refused, because the app can't produce the radio's number.
+- `cw_stop` sends `17 FF`.
+- On the radio: mode CW and **break-in on** (semi or full). Without it, CW sent over CI-V isn't transmitted. `python -m radio_keyer status` warns when break-in is OFF.
+- Recommended radio settings (MENU » SET » Connectors): **CI-V Transceive OFF**. **CI-V USB Echo Back OFF** (the default). CI-V USB Baud Rate matching `serial.baud` (or Auto). If a reply comes back as only an echo or a Transceive broadcast, the action fails with a message naming the setting.
+
 ### CW by DTR/RTS keying: `cw_keyer: dtr`
 
 The app keys CW itself on a serial port control line. This works with any radio that keys CW from a USB serial port. On the FT-891, use it when the CAT memory keyer is rejected (`KY` answers `?;`).
@@ -246,7 +264,7 @@ rig:
 
 - **Raw ASCII CAT can't contain spaces** (rigctld splits arguments on whitespace). Use `cw:` for CW text instead of e.g. Kenwood `KY` commands.
 - **Raw ASCII CAT is fire-and-forget**: no reply is read.
-- **`cw_memory`** works only with `rig.cw_keyer: yaesu` (Hamlib has no generic command). For other radios, use `cat`/`cat_hex` with the radio's memory-keyer command.
+- **`cw_memory`** works only with `rig.cw_keyer: yaesu` or `icom` (Hamlib has no generic command). For other radios, use `cat`/`cat_hex` with the radio's memory-keyer command.
 - **`cw ... via: winkeyer`** isn't implemented yet.
 - `stop_morse` depends on the radio's Hamlib backend.
 - A `delay_ms` step blocks other key presses until it finishes (keypad and web UI presses share one queue).
@@ -268,7 +286,7 @@ cp config.example.yaml config.yaml
 | Action | Example |
 |---|---|
 | CW text | `cw: "CQ TEST {call}"` (+ `via: cat \| winkeyer \| dtr`) |
-| Radio CW memory | `cw_memory: 1` (Yaesu: 1–5 text, 6–10 paddle; needs `rig.cw_keyer: yaesu`) |
+| Radio CW memory | `cw_memory: 1` (Yaesu: 1–5 text, 6–10 paddle; Icom: M1–M8; needs `rig.cw_keyer: yaesu` or `icom`) |
 | Stop CW | `cw_stop: true` |
 | Band | `band: 20m` / `up` / `down` |
 | Frequency (Hz) | `freq: 14074000` (+ `mode: PKTUSB`) |
@@ -334,6 +352,8 @@ radio_keyer/
   ft891.py            FT-891 operating presets (CAT settings + read-back)
   dtr_keyer.py        app-timed CW on a serial DTR/RTS line
   yaesu_keyer.py      Yaesu memory keyer (KM/KY)
+  civ.py              Icom CI-V frames over send_raw (build, parse, skip echo/broadcast)
+  icom_keyer.py       Icom CW over CI-V (17 send, 1A 02 memories)
   web.py              FastAPI web UI: state/press/profile/config/key API + WebSocket
   key_edit.py         read/rewrite one key in config.yaml text (ruamel round-trip)
   static/             web UI page (index.html, app.js, style.css; no build step)

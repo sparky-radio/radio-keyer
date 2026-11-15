@@ -21,7 +21,7 @@ from radio_keyer.actions import (
     ProfileAction,
 )
 from radio_keyer.bands import band_by_name, step_band
-from radio_keyer import ft891, yaesu_keyer
+from radio_keyer import civ, ft891, icom_keyer, yaesu_keyer
 from radio_keyer.config import Config, CwKeyer, DtrConfig
 from radio_keyer.dtr_keyer import DtrKeyer, KeyerError, SerialKeyLine
 from radio_keyer.keypad import KeyPress
@@ -134,6 +134,7 @@ class Runner:
                 UnsupportedActionError,
                 KeyerError,
                 ft891.PresetError,
+                civ.CivError,
                 ValueError,
             ) as exc:
                 skipped = len(binding) - i
@@ -151,6 +152,7 @@ class Runner:
         rig = self._rig
         rc = self._config.rig
         yaesu = rc.cw_keyer is CwKeyer.YAESU
+        icom = rc.cw_keyer is CwKeyer.ICOM
         match action:
             case CwAction():
                 if action.via is CwVia.WINKEYER:
@@ -160,19 +162,26 @@ class Runner:
                     self._dtr_keyer().send(text)  # queued; returns at once
                 elif yaesu:
                     await yaesu_keyer.send_text(rig, text, scratch=rc.cw_scratch_memory)
+                elif icom:
+                    await icom_keyer.send_text(rig, rc.civ_address, text)
                 else:
                     await rig.send_morse(text)
             case CwMemoryAction():
-                if not yaesu:
+                if icom:
+                    await icom_keyer.play_memory(rig, rc.civ_address, action.slot)
+                elif yaesu:
+                    await yaesu_keyer.play_memory(rig, action.slot)
+                else:
                     raise UnsupportedActionError(
-                        "cw_memory needs rig.cw_keyer: yaesu (Hamlib has no generic command)"
+                        "cw_memory needs rig.cw_keyer: yaesu or icom (Hamlib has no generic command)"
                     )
-                await yaesu_keyer.play_memory(rig, action.slot)
             case CwStopAction():
                 if self._dtr is not None:
                     self._dtr.stop()
                 if rc.cw_keyer is CwKeyer.HAMLIB:
                     await rig.stop_morse()
+                elif icom:
+                    await icom_keyer.stop(rig, rc.civ_address)
                 elif yaesu and self._dtr is None:
                     raise UnsupportedActionError(
                         "the Yaesu memory keyer has no CAT stop command; touch the paddle"
