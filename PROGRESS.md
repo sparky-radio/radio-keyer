@@ -9,6 +9,7 @@ As of 2026-11-14. Details are in the dated log below.
 - [ ] Presets for radios other than the FT-891.
 - [ ] `delay_ms` blocks other key presses until it finishes (keypad and web UI share one queue).
 - [ ] FT-891: CAT `KY` answers `?;` (firmware check); front-panel playback of CH5 not tested (session 8).
+- [ ] IC-7300 support: CW keyer, presets, docs (plan: session 10, branch `feature/ic7300`).
 - [ ] `icom` raw CAT terminator untested (needs an Icom radio).
 - [ ] Rig setup in the web UI (today only through the YAML editor).
 
@@ -240,3 +241,34 @@ Goal: any evdev keypad works by config alone. Already generic: `Keypad` takes an
 - [ ] Replace the fixed `NUM_KEYS = 6` with the configured count: config validation, `key_edit`, web press API, key grid and editor.
 - [ ] Tests; README section "Using another keypad"; memory.
 - Limit: each key must send one distinct key code. Keypads that send combos or media keys need reprogramming in their vendor tool.
+
+## 2026-11-15 (session 10): IC-7300 support (branch `feature/ic7300`)
+
+### Findings (`docs/IC-7300_instructions_full.pdf`, section 19)
+- CI-V frame `FE FE <radio> E0 <cmd> [sub] [data] FD`; OK = `FE FE E0 <radio> FB FD`, NG = `... FA FD`. Default radio address 94h.
+- `17` + ASCII (≤30 chars) sends CW; `17 FF` stops; `^` = no inter-character gap. Only transmits with TX or break-in on.
+- `1A 02` reads/writes keyer memories M1-M8. No CI-V command plays a memory.
+- CI-V Transceive (`1A 05 0071`) is ON by default: unsolicited frames to address 00h. USB Echo Back (`1A 05 0075`) is OFF by default.
+- USB Keying (CW) (`1A 05 0079`): OFF/DTR/RTS on the radio's single USB serial port (the same port as CI-V).
+- Hamlib model 3073 = IC-7300.
+
+### Plan
+Phase 1: CI-V layer and Icom CW keyer
+- [ ] `radio_keyer/civ.py`: build frames for a configured address; parse `send_raw` answers into frames; drop echoes (to = radio) and Transceive broadcasts (to = 00h); OK/NG/data reply. Hamlib's text format for binary answers is unverified, so the parser accepts hex with or without `0x`.
+- [ ] `radio_keyer/icom_keyer.py`: `cw:` text → `17` in ≤30-character chunks split at word gaps, each must answer OK; `cw_stop` → `17 FF`; `cw_memory N` (1-8) → read M`N` with `1A 02`, then send its text with `17`. A memory holding the `*` contest counter is refused, since the app can't count. `keyer_warning`: read break-in (`16 47`) and warn when it is OFF.
+- [ ] Config: `rig.cw_keyer: icom`, `rig.civ_address` (default 0x94). `cw_memory` limited to 1-8 with the Icom keyer.
+- [ ] Wire into runner, `check`, `status`; tests through SimulatedRig and the fake rigctld.
+
+Phase 2: presets for the IC-7300
+- [ ] `rig.radio: ft891 | ic7300` (default ft891, so existing configs keep working). Preset ranges and choices are checked per radio.
+- [ ] `radio_keyer/ic7300.py`: same preset fields over CI-V, each read back: power `14 0A`, agc `16 12` (no auto), preamp `16 02` (off/1/2), att `11`, nb `16 22`, nr `16 40`, key_speed `14 0C` (6-48 WPM), break_in `16 47` (off/semi/full), mic_gain `14 0B`, processor `16 44`, processor_level `14 0E` (0-10), data_ptt `1A 05 0078` (USB SEND off/dtr/rts). Mode and width go through Hamlib `set_mode` as on the FT-891.
+- [ ] Runner picks the preset module from `rig.radio`; web schema and `check` show it.
+
+Phase 3: DTR keying over the IC-7300 USB port (needs the radio)
+- [ ] The config rejects `dtr.port` equal to the CAT port (right for the FT-891's two ports). The IC-7300 has one port, so keying DTR there means sharing it with rigctld. Test whether that's reliable before relaxing the check.
+- [ ] Check whether Hamlib's own `send_morse`/`stop_morse` (the `hamlib` keyer) already works on the IC-7300.
+
+Phase 4: docs
+- [ ] README "IC-7300" section: Hamlib model 3073, radio settings (CI-V USB Port, baud, Transceive, USB Keying (CW)), example config, memory.
+
+Hardware checks once a radio is available: `icom` terminator and answer format, echo/Transceive handling, `17` chunking, presets read-back.
