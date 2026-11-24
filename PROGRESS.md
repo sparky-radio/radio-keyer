@@ -2,8 +2,8 @@
 
 ## Open items
 
-As of 2026-11-14. Details are in the dated log below.
-- [ ] Support other keypads, incl. Bluetooth/2.4 GHz via a device name (plan: session 9, cont.).
+As of 2026-11-24. Details are in the dated log below.
+- [ ] Other keypads (session 11, branch `feature/keypad-support`): `learn` works on the MK623Pro; Bluetooth/2.4 GHz by name still to be tried.
 - [ ] WinKeyer CW: config accepts `cw: ... via: winkeyer`, but the runner rejects it ("not implemented yet").
 - [ ] `cw_memory` for radio families other than Yaesu.
 - [ ] Presets for radios other than the FT-891.
@@ -232,11 +232,47 @@ As of 2026-11-14. Details are in the dated log below.
 - Pro model: USB, Bluetooth and 2.4 GHz modes via the connect button (hold 3-5 s to pair). In Bluetooth/2.4 GHz mode there is no `usb-PCsensor_MK623Pro` by-id path.
 - User confirmed long-press feel and unplug/replug recovery on the hardware.
 
-### Next: support other keypads (not started)
+### Next: support other keypads (done in session 11)
 Goal: any evdev keypad works by config alone. Already generic: `Keypad` takes any device path and keycode map; press detection, grab and reconnect don't depend on the model.
-- [ ] Config `keypad.keys`: list of key names in position order (e.g. `[KEY_F, KEY_E, KEY_D, KEY_C, KEY_B, KEY_A]`). The key count is the list length. The default stays the MK623Pro map. Optional `keypad.columns` for the web grid (default 3).
-- [ ] `keypad.device` accepts a path or `name: "..."` (matched against the evdev device name). This also covers Bluetooth/2.4 GHz mode.
-- [ ] `radio-keyer keytest --list` lists input devices (name, path). A new `radio-keyer learn` asks for each key in turn and prints a ready-to-paste `keypad:` block.
-- [ ] Replace the fixed `NUM_KEYS = 6` with the configured count: config validation, `key_edit`, web press API, key grid and editor.
-- [ ] Tests; README section "Using another keypad"; memory.
+- [x] Config `keypad.keys`: list of key names in position order (e.g. `[KEY_F, KEY_E, KEY_D, KEY_C, KEY_B, KEY_A]`). The key count is the list length. The default stays the MK623Pro map. Optional `keypad.columns` for the web grid (default 3).
+- [x] `keypad.device` accepts a path or `name: "..."` (matched against the evdev device name). This also covers Bluetooth/2.4 GHz mode.
+- [x] `radio-keyer keytest --list` lists input devices (name, path). A new `radio-keyer learn` asks for each key in turn and prints a ready-to-paste `keypad:` block.
+- [x] Replace the fixed `NUM_KEYS = 6` with the configured count: config validation, `key_edit`, web press API, key grid and editor.
+- [x] Tests; README section "Using another keypad"; memory. (All done in session 11.)
 - Limit: each key must send one distinct key code. Keypads that send combos or media keys need reprogramming in their vendor tool.
+
+## 2026-11-24 (session 11): generic keypad support (branch `feature/keypad-support`)
+
+### Done
+- `keypad.py`
+  - `key_code()` / `keymap_from_names()`: names like `KEY_F`, `f`, `BTN_0`.
+  - `find_device_by_name()`: exact evdev name. It skips devices that send no keys, and if several share the name it prefers the one that can send all mapped keys.
+  - `list_devices()`: scans `/dev/input/event*` directly, because `evdev.list_devices()` hides unreadable devices. Shows by-id links.
+  - `Keypad(device_name=...)` looks the device up again on every reconnect. `on_unmapped` callback.
+  - `KeyLearner` and `wait_for_any_key()` / `learn_keys()` for `learn`. Before grabbing, it waits for the picked key to be released, so the desktop never sees a stuck key.
+- Config `keypad`:
+  - `device` is a path or `{name: "..."}`.
+  - `keys`: key names in position order, checked for unknown names and duplicates, at most 64.
+  - `columns`: 1-12, default 3.
+  - Profile key positions are checked against the key count. `NUM_KEYS` is gone.
+- `key_edit` takes the key count from the file's own `keypad.keys`.
+- Web: `/api/press` gives 422 beyond the configured count. The state carries `columns`. The grid uses CSS `--cols` (`--cols-narrow` = min(cols, 2) on phones).
+- CLI:
+  - `keytest --list`.
+  - `keytest` reads `keypad:` from `config.yaml` if present (`-c`, `--device`, `--name`, `--long-ms` override) and prints unmapped keys.
+  - New `learn`: press any key to pick the device, or use `--device`/`--name`. Press each key in order and press the first key again to finish. It prints a `keypad:` block: by-id path if there is one, else `{name: ...}`.
+  - `check` shows the device and key count.
+- README:
+  - "Using another keypad" section.
+  - `keypad` config reference.
+  - A udev rule by `ATTRS{name}` for Bluetooth/2.4 GHz.
+- `config.example.yaml`: commented `device`, `keys` and `columns`.
+- 160 tests pass. `dryrun` with `device: {name: "PCsensor MK623Pro Keyboard"}` found and grabbed the keypad (event8).
+
+### Findings
+- The MK623Pro over USB shows up as three input devices: `PCsensor MK623Pro Keyboard` (event8, the kbd by-id), `... Mouse` (event9) and `PCsensor MK623Pro` (event11, no keys).
+
+### Next
+- [x] User tried `radio-keyer learn` on the MK623Pro (2026-11-24): works.
+- [ ] Bluetooth / 2.4 GHz: pair, run `keytest --list` (with `sudo` if needed) to get the name, add the udev rule by name, then use `device: {name: ...}`.
+- [ ] Commit and push `feature/keypad-support`; the user opens the PR. PROGRESS.md may conflict with `feature/ic7300` (session 10 log) when both are merged.

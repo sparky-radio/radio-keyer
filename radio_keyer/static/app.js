@@ -5,7 +5,7 @@
  * @typedef {{position: number, short: PressView, long: PressView}} KeyView
  * @typedef {{name: string, label: string}} ProfileView
  * @typedef {{type: "state", callsign: string, rig: string, keypad_connected: boolean | null,
- *   profiles: ProfileView[], active_profile: string, keys: KeyView[], config_path: string,
+ *   profiles: ProfileView[], active_profile: string, keys: KeyView[], columns: number, config_path: string,
  *   restart_required: string[]}} StateMsg
  * @typedef {{type: "status", ok: boolean, freq_hz?: number, mode?: string,
  *   passband_hz?: number, error?: string}} StatusMsg
@@ -100,7 +100,10 @@ const renderState = (msg) => {
     }),
   );
 
-  $("keys").replaceChildren(...msg.keys.map(renderKey));
+  const keysEl = $("keys");
+  keysEl.style.setProperty("--cols", String(msg.columns));
+  keysEl.style.setProperty("--cols-narrow", String(Math.min(msg.columns, 2)));
+  keysEl.replaceChildren(...msg.keys.map(renderKey));
 };
 
 /** @param {KeyView} key */

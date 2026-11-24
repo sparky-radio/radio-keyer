@@ -160,11 +160,11 @@ button.ghost { background: transparent; }
 /* keys */
 .keys {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr));
   gap: 0.6rem;
 }
 @media (max-width: 520px) {
-  .keys { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .keys { grid-template-columns: repeat(var(--cols-narrow, 2), minmax(0, 1fr)); }
 }
 .key {
   border: 1px solid var(--border);

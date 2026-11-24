@@ -1,12 +1,13 @@
 # radio-keyer
 
-Turn a **PCsensor MK623Pro** 6-key USB/Bluetooth keypad into a CAT control pad for a ham radio on Linux.
+Turn a small USB/Bluetooth keypad into a CAT control pad for a ham radio on Linux. Built around the **PCsensor MK623Pro** (6 keys); any keypad that sends ordinary key codes works (see [Using another keypad](#using-another-keypad)).
 
-Each key fires an action — send a CW message, change band/frequency/mode, or send a raw CAT string. Profiles (layers) let the 6 keys cover many more functions. A small local web UI shows radio status and edits key mappings.
+Each key fires an action — send a CW message, change band/frequency/mode, or send a raw CAT string. Profiles (layers) let a few keys cover many more functions. A small local web UI shows radio status and edits key mappings.
 
 ## Features
 
 - **Exclusive keypad capture** via evdev — key presses never leak into other apps.
+- **Any keypad**: key count and key codes come from the config; find the device by path or by name (Bluetooth / 2.4 GHz). `radio-keyer learn` writes the config block for you.
 - **Any radio** via Hamlib, plus **raw CAT passthrough** for radio-specific commands.
 - **Two rig connection modes**
   - `rigctld` (TCP) — share the radio with WSJT-X, fldigi, loggers
@@ -102,6 +103,14 @@ sudo udevadm control --reload && sudo udevadm trigger
 # then unplug/replug the keypad
 ```
 
+The rule matches the USB IDs, so it doesn't cover Bluetooth or 2.4 GHz mode or other keypads. Match by device name instead (names from `radio-keyer keytest --list`, run with `sudo` if your user can't read the device yet):
+
+```
+SUBSYSTEM=="input", ATTRS{name}=="PCsensor MK623Pro Keyboard", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+```
+
+For another USB keypad, use its IDs from `lsusb` in the first rule.
+
 ## Usage
 
 Activate the venv first: `source .venv/bin/activate`
@@ -119,14 +128,38 @@ key 1  short  KEY_F    142 ms
 key 3  long   KEY_D    600 ms
 ```
 
+It uses the `keypad:` section of `config.yaml` if the file exists (else the MK623Pro defaults). Keys not in `keypad.keys` print as `unmapped`.
+
 | Option | Default | Meaning |
 |---|---|---|
-| `--long-ms N` | 600 | Long-press threshold (fires while still held) |
-| `--device PATH` | MK623Pro by-id path | Other evdev device |
+| `--list` | | List input devices (path, name, by-id links) and exit |
+| `-c FILE` | `config.yaml` | Config to read `keypad:` from |
+| `--device PATH` | from config | Other evdev device |
+| `--name NAME` | from config | Device by its evdev name (see `--list`) |
+| `--long-ms N` | from config (600) | Long-press threshold (fires while still held) |
 | `--no-grab` | off | Don't grab exclusively (keys also type normally) |
-| `-v` | off | Debug logging (shows unmapped keys) |
 
 Unplugging the keypad is handled: it reconnects automatically on replug.
+
+### Using another keypad
+
+Any evdev keypad works if each key sends one distinct key code. Keypads that send key combinations or media keys must be reprogrammed in their vendor tool first.
+
+1. Give your user access to it (see [Permissions](#5-permissions)).
+2. Run `radio-keyer learn`, press any key on the keypad to pick it, then press each key once in order (left to right, top to bottom). Press the first key again to finish. Use `--device PATH` or `--name NAME` to pick the device yourself (`radio-keyer keytest --list` shows them).
+3. Paste the printed block into `config.yaml` over the existing `keypad:` section:
+
+   ```yaml
+   keypad:
+     device: /dev/input/by-id/usb-PCsensor_MK623Pro-event-kbd
+     # device: {name: "PCsensor MK623Pro Keyboard"}   # by name (Bluetooth/2.4 GHz)
+     keys: [KEY_F, KEY_E, KEY_D, KEY_C, KEY_B, KEY_A]
+     columns: 3               # key grid width in the web UI
+   ```
+
+4. Check with `radio-keyer keytest`, then bind the keys under `profiles:` (positions `1` to the number of keys).
+
+`device` is a path, or `{name: "..."}` to find the device by its evdev name. Use the name in Bluetooth or 2.4 GHz mode, where there is no stable `/dev/input/by-id` path; it is looked up again on every reconnect. If several devices share the name, the one that can send all of `keys` is used.
 
 ### Check the config
 
@@ -165,7 +198,7 @@ Keypad → actions → rig. If rigctld isn't up yet, it logs a warning and retri
 `run` and `dryrun` also serve a local web UI at **http://localhost:8073/** (`--no-web` to skip it).
 
 - **Rig**: live frequency/mode (polled every second while a browser is open), connection indicators for rig and keypad.
-- **Keys**: the active profile's 6 keys (short + long), with keys inherited from `global` tagged. Click a key to fire it, exactly like the keypad.
+- **Keys**: the active profile's keys (short + long), with keys inherited from `global` tagged. Click a key to fire it, exactly like the keypad.
 - **Profiles**: click to switch.
 - **Key editor**: ✎ on a key opens a form for that key in the active profile (switch to any profile, or `global`, in the form). Short and long press each take a list of actions run top to bottom; add, remove and reorder rows, each with fields for its action type. An empty press in a profile falls back to `global`. *Save & apply* validates the whole config, writes it (previous version → `config.yaml.bak`) and applies it. Only that key's lines change in `config.yaml`: comments and the formatting of everything else are kept.
 - **Activity**: the same log as the terminal.
@@ -263,6 +296,7 @@ cp config.example.yaml config.yaml
 - **global**: fallback used when the active profile doesn't define a key/press.
 - **Each key** has `short` and/or `long`. A bare action means `short`.
 - **Each press** runs one action, or a list of actions in order.
+- **keypad**: `device` (path, or `{name: "..."}`), `keys` (key names in position order; the count sets the number of keys; default the MK623Pro's `[KEY_F, KEY_E, KEY_D, KEY_C, KEY_B, KEY_A]`), `columns` (web grid width, default 3), `long_press_ms` (default 600), `grab` (default true). See [Using another keypad](#using-another-keypad).
 - **web**: `enabled` (default true), `host` (default `127.0.0.1`), `port` (default `8073`).
 
 | Action | Example |
@@ -324,8 +358,8 @@ Series example:
 ```
 config.example.yaml   example configuration (copy to config.yaml, which git ignores)
 radio_keyer/
-  __main__.py         CLI (keytest, check, dryrun, status, run; run/dryrun serve the web UI)
-  keypad.py           evdev reader, exclusive grab, short/long press, reconnect
+  __main__.py         CLI (keytest, learn, check, dryrun, status, run; run/dryrun serve the web UI)
+  keypad.py           evdev reader, device lookup by name, exclusive grab, short/long press, reconnect
   config.py           YAML loader + validation, profile lookup / global fallback
   actions.py          action types
   bands.py            band table, band up/down

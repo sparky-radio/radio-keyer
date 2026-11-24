@@ -124,3 +124,64 @@ def test_errors(snippet: str, message: str) -> None:
 def test_missing_file(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="file not found"):
         load_config(tmp_path / "nope.yaml")
+
+
+# --- keypad ---------------------------------------------------------------
+
+from radio_keyer.keypad import DEFAULT_KEYMAP, key_code  # noqa: E402
+
+
+def test_keypad_defaults_are_mk623pro() -> None:
+    kc = parse_config_text("profiles: {a: {}}").keypad
+    assert kc.num_keys == 6 and kc.columns == 3 and kc.device_name is None
+    assert kc.keymap == dict(DEFAULT_KEYMAP)
+    assert kc.describe_device().endswith("MK623Pro-event-kbd")
+
+
+def test_keypad_custom_keys_and_name() -> None:
+    text = """
+keypad:
+  device: {name: "Some Keypad"}
+  keys: [KEY_KP7, kp8, BTN_0, 1]
+  columns: 2
+profiles:
+  a:
+    keys:
+      4: {mode: CW}
+"""
+    kc = parse_config_text(text).keypad
+    assert kc.device_name == "Some Keypad"
+    assert kc.keys == ("KEY_KP7", "KEY_KP8", "BTN_0", "KEY_1")
+    assert kc.keymap == {key_code("KEY_KP7"): 1, key_code("KEY_KP8"): 2, key_code("BTN_0"): 3, key_code("KEY_1"): 4}
+    assert kc.num_keys == 4 and kc.columns == 2
+    assert kc.describe_device() == "name 'Some Keypad'"
+
+
+@pytest.mark.parametrize(
+    ("keypad", "message"),
+    [
+        ("{keys: [KEY_A, KEY_NOPE]}", "keypad.keys[1]: unknown key name 'KEY_NOPE'"),
+        ("{keys: [KEY_A, a]}", "keypad.keys[1]: KEY_A is already key 1"),
+        ("{keys: []}", "keypad.keys: expected a list"),
+        ("{keys: KEY_A}", "keypad.keys: expected a list"),
+        ("{columns: 0}", "keypad.columns"),
+        ("{device: event3}", "keypad.device: give a device path"),
+        ("{device: {name: ''}}", "keypad.device.name: expected non-empty"),
+        ("{device: {name: '  '}}", "keypad.device.name: must not be empty"),
+        ("{device: {path: /dev/x}}", "keypad.device"),
+    ],
+)
+def test_keypad_errors(keypad: str, message: str) -> None:
+    with pytest.raises(ConfigError) as exc_info:
+        parse_config_text(f"keypad: {keypad}\nprofiles: {{a: {{}}}}")
+    assert message in str(exc_info.value)
+
+
+def test_key_positions_follow_keypad_keys() -> None:
+    nine = "keypad: {keys: [KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9]}\n"
+    cfg = parse_config_text(nine + "profiles: {a: {keys: {9: {mode: CW}}}}")
+    assert cfg.binding("a", 9, PressKind.SHORT) is not None
+    with pytest.raises(ConfigError, match=r"key position must be 1-9"):
+        parse_config_text(nine + "profiles: {a: {keys: {10: {mode: CW}}}}")
+    with pytest.raises(ConfigError, match=r"profiles.a.keys.3: key position must be 1-2"):
+        parse_config_text("keypad: {keys: [a, b]}\nprofiles: {a: {keys: {3: {mode: CW}}}}")

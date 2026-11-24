@@ -38,9 +38,17 @@ from radio_keyer.bands import BANDS, band_by_name
 from radio_keyer.dtr_keyer import MAX_WPM, MIN_WPM, KeyLineName
 from radio_keyer import ft891
 from radio_keyer.ft891 import Preset
-from radio_keyer.keypad import DEFAULT_DEVICE_PATH, DEFAULT_LONG_PRESS_S, PressKind
+from radio_keyer.keypad import (
+    DEFAULT_DEVICE_PATH,
+    DEFAULT_KEY_NAMES,
+    DEFAULT_LONG_PRESS_S,
+    PressKind,
+    key_code,
+    key_name,
+)
 
-NUM_KEYS: Final[int] = 6
+MAX_KEYS: Final[int] = 64
+MAX_COLUMNS: Final[int] = 12
 GLOBAL_PROFILE: Final[str] = "global"
 _RESERVED_PROFILE_NAMES: Final[frozenset[str]] = frozenset({GLOBAL_PROFILE, PROFILE_NEXT, PROFILE_PREV})
 _MAX_DELAY_MS: Final[int] = 60_000
@@ -112,8 +120,27 @@ class RigConfig:
 @dataclass(frozen=True, slots=True)
 class KeypadConfig:
     device: str = DEFAULT_DEVICE_PATH
+    """Device path; ignored when `device_name` is set."""
+    device_name: str | None = None
+    """Find the device by its evdev name (`device: {name: ...}`)."""
+    keys: tuple[str, ...] = DEFAULT_KEY_NAMES
+    """evdev key names in position order; the count sets the number of keys."""
+    columns: int = 3
+    """Key grid width in the web UI."""
     long_press_ms: int = int(DEFAULT_LONG_PRESS_S * 1000)
     grab: bool = True
+
+    @property
+    def num_keys(self) -> int:
+        return len(self.keys)
+
+    @property
+    def keymap(self) -> dict[int, int]:
+        """{keycode: position}."""
+        return {key_code(name): pos for pos, name in enumerate(self.keys, start=1)}
+
+    def describe_device(self) -> str:
+        return f"name '{self.device_name}'" if self.device_name is not None else self.device
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,7 +246,7 @@ def parse_config(raw: object) -> Config:
     web = _parse_web(top.get("web"), "web")
     presets = _parse_presets(top.get("presets"), "presets")
 
-    ctx = _Context(station=station)
+    ctx = _Context(station=station, num_keys=keypad.num_keys)
     global_profile = _parse_profile(GLOBAL_PROFILE, top.get(GLOBAL_PROFILE), GLOBAL_PROFILE, ctx)
 
     raw_profiles = _mapping(top.get("profiles"), "profiles", required=True)
@@ -255,6 +282,7 @@ def parse_config(raw: object) -> Config:
 @dataclass(slots=True)
 class _Context:
     station: StationConfig
+    num_keys: int
     profile_refs: list[tuple[str, str]] = field(default_factory=list)
     """(target, path) of every ProfileAction, validated once all profiles are known."""
     preset_refs: list[tuple[str, str]] = field(default_factory=list)
@@ -342,12 +370,58 @@ def _parse_rig(raw: object, path: str) -> RigConfig:
 
 def _parse_keypad(raw: object, path: str) -> KeypadConfig:
     m = _mapping(raw, path)
-    _check_keys(m, {"device", "long_press_ms", "grab"}, path)
+    _check_keys(m, {"device", "keys", "columns", "long_press_ms", "grab"}, path)
+    device, device_name = _parse_keypad_device(m.get("device"), f"{path}.device")
     return KeypadConfig(
-        device=_opt_str(m, "device", path, _KEYPAD.device),
+        device=device,
+        device_name=device_name,
+        keys=_parse_keypad_keys(m.get("keys"), f"{path}.keys"),
+        columns=_opt_int(m, "columns", path, _KEYPAD.columns, lo=1, hi=MAX_COLUMNS),
         long_press_ms=_opt_int(m, "long_press_ms", path, _KEYPAD.long_press_ms, lo=50, hi=5000),
         grab=_opt_bool(m, "grab", path, _KEYPAD.grab),
     )
+
+
+def _parse_keypad_device(raw: object, path: str) -> tuple[str, str | None]:
+    """`/dev/input/...` → (path, None); `{name: "..."}` → (default path, name)."""
+    if raw is None:
+        return _KEYPAD.device, None
+    if isinstance(raw, dict):
+        m = _mapping(raw, path)
+        _check_keys(m, {"name"}, path)
+        name = _req_str(m.get("name"), f"{path}.name").strip()
+        if not name:
+            raise ConfigError(f"{path}.name: must not be empty")
+        return _KEYPAD.device, name
+    device = _req_str(raw, path).strip()
+    if not device.startswith("/"):
+        raise ConfigError(f"{path}: give a device path (/dev/input/...) or {{name: \"...\"}}")
+    return device, None
+
+
+def _parse_keypad_keys(raw: object, path: str) -> tuple[str, ...]:
+    if raw is None:
+        return _KEYPAD.keys
+    if not isinstance(raw, list) or not raw:
+        raise ConfigError(f"{path}: expected a list of key names, e.g. [KEY_F, KEY_E]")
+    if len(raw) > MAX_KEYS:
+        raise ConfigError(f"{path}: at most {MAX_KEYS} keys")
+    names: list[str] = []
+    seen: dict[int, int] = {}
+    for i, item in enumerate(raw):
+        ipath = f"{path}[{i}]"
+        if isinstance(item, int) and not isinstance(item, bool):
+            item = str(item)  # YAML reads `1` as a number
+        text = _req_str(item, ipath)
+        try:
+            code = key_code(text)
+        except ValueError as exc:
+            raise ConfigError(f"{ipath}: {exc}") from None
+        if code in seen:
+            raise ConfigError(f"{ipath}: {key_name(code)} is already key {seen[code]}")
+        seen[code] = i + 1
+        names.append(key_name(code))
+    return tuple(names)
 
 
 def _parse_web(raw: object, path: str) -> WebConfig:
@@ -428,8 +502,8 @@ def _parse_profile(name: str, raw: object, path: str, ctx: _Context) -> Profile:
     keys: dict[int, dict[PressKind, Binding]] = {}
     for pos_s, entry in raw_keys.items():
         epath = f"{kp}.{pos_s}"
-        if not pos_s.isdigit() or not 1 <= int(pos_s) <= NUM_KEYS:
-            raise ConfigError(f"{epath}: key position must be 1-{NUM_KEYS}")
+        if not pos_s.isdigit() or not 1 <= int(pos_s) <= ctx.num_keys:
+            raise ConfigError(f"{epath}: key position must be 1-{ctx.num_keys} (keypad.keys)")
         keys[int(pos_s)] = _parse_key_entry(entry, epath, ctx)
     return Profile(name=name, label=label, keys=keys)
 

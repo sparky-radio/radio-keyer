@@ -38,12 +38,18 @@ ORIGIN = f"http://{HOST}"
 
 
 class Env:
-    def __init__(self, tmp_path: Path, *, rig_factory: Callable[[Any], Rig] | None = None) -> None:
+    def __init__(
+        self,
+        tmp_path: Path,
+        *,
+        rig_factory: Callable[[Any], Rig] | None = None,
+        config: str = CONFIG,
+    ) -> None:
         self.path = tmp_path / "config.yaml"
-        self.path.write_text(CONFIG, encoding="utf-8")
+        self.path.write_text(config, encoding="utf-8")
         self.out: list[str] = []
         self.rig = SimulatedRig(self.out.append)
-        self.runner = Runner(parse_config_text(CONFIG), self.rig)
+        self.runner = Runner(parse_config_text(config), self.rig)
         self.hub = WebHub(
             self.runner,
             self.path,
@@ -359,3 +365,26 @@ def test_put_key_cross_origin_refused(tmp_path: Path) -> None:
         env.request("PUT", "/api/keys/main/1", {"short": None}, origin="http://evil.example")
     )
     assert status == 403 and env.path.read_text() == CONFIG
+
+
+NINE_KEYS = "keypad: {keys: [KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9], columns: 4}\n"
+
+
+def test_key_count_and_columns_follow_keypad_config(tmp_path: Path) -> None:
+    config = NINE_KEYS + CONFIG + "      9: {mode: CW}\n"  # in profile `other`
+    env = Env(tmp_path, config=config)
+    env.runner.set_profile("other")
+    _, state = run(env.request("GET", "/api/state"))
+    assert len(state["keys"]) == 9 and state["columns"] == 4
+    assert run(env.request("GET", "/api/schema"))[1]["num_keys"] == 9
+    assert run(env.request("POST", "/api/press", {"position": 9}))[1] == {"ok": True}
+    assert env.out == ["set_mode CW"]
+    status, res = run(env.request("POST", "/api/press", {"position": 10}))
+    assert status == 422 and "1-9" in res["detail"]
+    assert run(env.request("GET", "/api/keys/main/9"))[0] == 200
+    assert run(env.request("GET", "/api/keys/main/10"))[0] == 422
+
+
+def test_default_keypad_has_six_keys(tmp_path: Path) -> None:
+    _, state = run(Env(tmp_path).request("GET", "/api/state"))
+    assert len(state["keys"]) == 6 and state["columns"] == 3
