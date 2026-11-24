@@ -326,6 +326,8 @@ def test_schema_lists_choices(tmp_path: Path) -> None:
     assert schema["profiles"] == ["global", "main", "other"]
     assert schema["profile_targets"] == ["next", "prev", "main", "other"]
     assert "20m" in schema["bands"] and "CW" in schema["modes"]
+    assert schema["memory_targets"][:4] == ["up", "down", "to_vfo", "1"]
+    assert schema["memory_targets"][-1] == "99" and schema["scan_directions"] == ["up", "down", "stop"]
 
 
 def test_get_key(tmp_path: Path) -> None:
@@ -388,3 +390,16 @@ def test_key_count_and_columns_follow_keypad_config(tmp_path: Path) -> None:
 def test_default_keypad_has_six_keys(tmp_path: Path) -> None:
     _, state = run(Env(tmp_path).request("GET", "/api/state"))
     assert len(state["keys"]) == 6 and state["columns"] == 3
+
+
+def test_put_key_memory_and_scan(tmp_path: Path) -> None:
+    env = Env(tmp_path)
+    body = {"short": [{"memory": 12}], "long": [{"scan": "stop"}]}
+    status, res = run(env.request("PUT", "/api/keys/main/4", body))
+    assert status == 200 and res["ok"] is True
+    text = env.path.read_text()
+    assert "4:" in text and "memory: 12" in text and "scan: stop" in text
+    assert run(env.request("GET", "/api/keys/main/4"))[1]["short"] == [{"memory": 12}]
+    _, state = run(env.request("GET", "/api/state"))
+    assert state["keys"][3]["short"]["actions"] == ["memory 12"]
+    assert state["keys"][3]["long"]["actions"] == ["scan stop"]

@@ -16,9 +16,11 @@ from radio_keyer.actions import (
     CwVia,
     DelayAction,
     FreqAction,
+    MemoryAction,
     ModeAction,
     PresetAction,
     ProfileAction,
+    ScanAction,
 )
 from radio_keyer.bands import band_by_name, step_band
 from radio_keyer import ft891, yaesu_keyer
@@ -134,6 +136,7 @@ class Runner:
                 UnsupportedActionError,
                 KeyerError,
                 ft891.PresetError,
+                ft891.MemoryChannelError,
                 ValueError,
             ) as exc:
                 skipped = len(binding) - i
@@ -201,5 +204,24 @@ class Runner:
                 self.set_profile(action.target)
             case PresetAction():
                 await ft891.apply_preset(rig, self._config.presets[action.name])
+            case MemoryAction():
+                await self._memory(action)
+            case ScanAction():
+                await ft891.scan(rig, action.direction)
             case DelayAction():
                 await asyncio.sleep(action.ms / 1000)
+
+    async def _memory(self, action: MemoryAction) -> None:
+        rig = self._rig
+        if action.target == "to_vfo":
+            await ft891.memory_to_vfo(rig)
+            return
+        if isinstance(action.target, int):
+            info = await ft891.recall_memory(rig, action.target)
+        else:
+            info = await ft891.step_memory(rig, up=action.target == "up")
+        if info is None:
+            return
+        log.info("Radio: %s", info.describe())
+        if info.in_vfo:
+            log.warning("The radio is in VFO mode: press V/M to use the memory channel")

@@ -166,3 +166,104 @@ async def apply_preset(rig: Rig, preset: Preset) -> None:
             log.debug("preset %s: %s OK (%s)", preset.name, s.label, answer)
     if failed:
         raise PresetError(f"preset {preset.name}: not applied: {'; '.join(failed)}")
+
+
+# --- memory channels and scan ---------------------------------------------
+#
+# MCnnn; selects a memory channel, CH0;/CH1; steps up/down, MA; copies the
+# memory to VFO-A, SCn; scans (0 off, 1 up, 2 down). IF; reports the channel,
+# the frequency and whether the radio is in VFO or memory mode (P7).
+# VM; is left out on purpose: the CAT manual's detail page calls it
+# "VFO-A to memory channel", which may overwrite the memory.
+
+MEMORY_CHANNELS: Final[tuple[int, int]] = (1, 99)
+_SCAN_CODES: Final[dict[str, str]] = {"stop": "0", "up": "1", "down": "2"}
+_MEMORY_AREAS: Final[dict[str, str]] = {
+    "0": "VFO", "1": "memory", "2": "memory tune", "3": "QMB", "4": "QMB tune", "5": "PMS", "6": "home",
+}  # fmt: skip
+
+
+class MemoryChannelError(Exception):
+    """The radio did not take a memory/scan command."""
+
+
+@dataclass(frozen=True, slots=True)
+class RadioInfo:
+    """Parsed `IF;` answer."""
+
+    channel: str
+    """'001'-'099', 'P1L'..., as the radio reports it."""
+    freq_hz: int
+    area: str
+    """VFO, memory, memory tune, QMB, PMS, home ..."""
+
+    @property
+    def in_vfo(self) -> bool:
+        return self.area == "VFO"
+
+    def describe(self) -> str:
+        return f"channel {self.channel}, {self.freq_hz / 1e6:.6f} MHz, {self.area} mode"
+
+
+def parse_info(answer: str) -> RadioInfo | None:
+    """`IF` + P1 channel(3) + P2 freq(9) + P3 clar(5) + P4 + P5 + P6 mode + P7 area ...; None if malformed."""
+    a = answer.strip()
+    if not a.startswith("IF") or len(a) < 24 or not a[5:14].isdigit():
+        return None
+    return RadioInfo(channel=a[2:5], freq_hz=int(a[5:14]), area=_MEMORY_AREAS.get(a[22], f"P7={a[22]}"))
+
+
+async def _write(rig: Rig, cmd: str) -> None:
+    await rig.send_raw(cmd.encode("ascii"), binary=False)
+
+
+async def _read(rig: Rig, cmd: str) -> str:
+    return (await rig.send_raw(cmd.encode("ascii"), binary=False, terminator=";")).strip()
+
+
+async def read_info(rig: Rig) -> RadioInfo | None:
+    return parse_info(await _read(rig, "IF;"))
+
+
+def _channel_of(answer: str) -> str | None:
+    """'MC012;' → '012'."""
+    if answer.startswith("MC") and answer.endswith(";") and len(answer) == 6:
+        return answer[2:5]
+    return None
+
+
+async def recall_memory(rig: Rig, channel: int) -> RadioInfo | None:
+    """Select memory `channel`; MemoryChannelError if the radio stays elsewhere."""
+    lo, hi = MEMORY_CHANNELS
+    if not lo <= channel <= hi:
+        raise ValueError(f"memory channel must be {lo}-{hi}: {channel}")
+    want = f"{channel:03d}"
+    await _write(rig, f"MC{want};")
+    answer = await _read(rig, "MC;")
+    if _channel_of(answer) != want:
+        raise MemoryChannelError(
+            f"memory {channel} not selected (radio answered {answer or 'nothing'}; empty channel?)"
+        )
+    return await read_info(rig)
+
+
+async def step_memory(rig: Rig, up: bool) -> RadioInfo | None:
+    """Memory channel up/down (CH0; / CH1;)."""
+    await _write(rig, "CH0;" if up else "CH1;")
+    return await read_info(rig)
+
+
+async def memory_to_vfo(rig: Rig) -> None:
+    """Copy the current memory to VFO-A (MA;)."""
+    await _write(rig, "MA;")
+
+
+async def scan(rig: Rig, direction: str) -> None:
+    """Start scanning up/down, or stop; checked by reading SC; back."""
+    code = _SCAN_CODES.get(direction)
+    if code is None:
+        raise ValueError(f"scan direction must be one of {', '.join(_SCAN_CODES)}: {direction}")
+    await _write(rig, f"SC{code};")
+    answer = await _read(rig, "SC;")
+    if answer != f"SC{code};":
+        raise MemoryChannelError(f"scan {direction}: radio answered {answer or 'nothing'}")

@@ -15,6 +15,7 @@ Each key fires an action — send a CW message, change band/frequency/mode, or s
 - **CW**: Hamlib `send_morse`, the Yaesu memory keyer (CAT), or app-timed DTR/RTS keying (verified on the FT-891). WinKeyer is planned.
 - **Band / frequency / mode** actions.
 - **Operating presets** (FT-891): one key sets mode, width, power, AGC, preamp/ATT, NB/NR, keyer speed, BK-IN, mic gain, processor and DATA PTT for CW / Data / SSB. Each setting is read back to confirm it took.
+- **Memory channels and scan** (FT-891): recall channel 1–99, step up/down, copy to VFO-A, scan up/down/stop. Each is checked against the radio's answer.
 - **Profiles** — switch layers (e.g. CW contest / band / macros).
 - **Local web UI** — live radio status, key grid with click-to-fire, profile switch, per-key form editor and raw config editor.
 
@@ -311,6 +312,8 @@ cp config.example.yaml config.yaml
 | Raw CAT (binary, Icom) | `cat_hex: "FE FE 94 E0 03 FD"` |
 | Switch profile | `profile: next` / `prev` / `<name>` |
 | Operating preset (FT-891) | `preset: cw` (defined under `presets:`) |
+| Memory channel (FT-891) | `memory: 12` (1–99) / `up` / `down` / `to_vfo` |
+| Scan (FT-891) | `scan: up` / `down` / `stop` |
 | Pause | `delay_ms: 300` |
 
 ### Operating presets (FT-891)
@@ -353,6 +356,29 @@ Series example:
     - cw: "CQ CQ {call} {call} K"
 ```
 
+### Memory channels and scan (FT-891)
+
+```yaml
+  mem:
+    label: Memories
+    keys:
+      1: {short: {memory: down}, long: {scan: down}}
+      2: {short: {memory: to_vfo}, long: {scan: stop}}
+      3: {short: {memory: up}, long: {scan: up}}
+      4: {memory: 1}
+      5: {memory: 2}
+      6: {memory: 3}
+```
+
+| Action | CAT | Check |
+|---|---|---|
+| `memory: N` (1–99) | `MCnnn;` | Reads `MC;` back. An empty channel fails, and the rest of a series is skipped. |
+| `memory: up` / `down` | `CH0;` / `CH1;` | |
+| `memory: to_vfo` | `MA;` (copy the memory into VFO-A) | |
+| `scan: up` / `down` / `stop` | `SC1;` / `SC2;` / `SC0;` | Reads `SC;` back. |
+
+After `memory:`, the app reads `IF;` and logs the channel and frequency. If the radio is still in VFO mode, it logs a warning: press **V/M** on the radio. The app doesn't send `VM;`, because the CAT manual describes it as "VFO-A to memory channel", which may overwrite the memory. `scan` scans memories in memory mode and the band in VFO mode.
+
 ## Layout
 
 ```
@@ -365,7 +391,7 @@ radio_keyer/
   bands.py            band table, band up/down
   rig.py              Rig interface, rigctld client, simulated rig
   runner.py           executes bindings on a Rig, tracks active profile
-  ft891.py            FT-891 operating presets (CAT settings + read-back)
+  ft891.py            FT-891 operating presets, memory channels, scan (CAT + read-back)
   dtr_keyer.py        app-timed CW on a serial DTR/RTS line
   yaesu_keyer.py      Yaesu memory keyer (KM/KY)
   web.py              FastAPI web UI: state/press/profile/config/key API + WebSocket

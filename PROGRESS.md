@@ -3,7 +3,8 @@
 ## Open items
 
 As of 2026-11-24. Details are in the dated log below.
-- [ ] Other keypads (session 11, branch `feature/keypad-support`): `learn` works on the MK623Pro; Bluetooth/2.4 GHz by name still to be tried.
+- [ ] Bluetooth/2.4 GHz keypad by name: not tried yet (keypad support merged, PR #3).
+- [ ] FT-891 `scan:` and the open `memory:` questions (session 12): `memory:` confirmed working on the radio.
 - [ ] WinKeyer CW: config accepts `cw: ... via: winkeyer`, but the runner rejects it ("not implemented yet").
 - [ ] `cw_memory` for radio families other than Yaesu.
 - [ ] Presets for radios other than the FT-891.
@@ -276,3 +277,31 @@ Goal: any evdev keypad works by config alone. Already generic: `Keypad` takes an
 - [x] User tried `radio-keyer learn` on the MK623Pro (2026-11-24): works.
 - [ ] Bluetooth / 2.4 GHz: pair, run `keytest --list` (with `sudo` if needed) to get the name, add the udev rule by name, then use `device: {name: ...}`.
 - [ ] Commit and push `feature/keypad-support`; the user opens the PR. PROGRESS.md may conflict with `feature/ic7300` (session 10 log) when both are merged.
+
+## 2026-11-24 (session 12): FT-891 memory channels and scan (branch `feature/memory-action`)
+
+Keypad support was merged as PR #3 (33a7d07).
+
+### Done
+- New actions, from the FT-891 CAT manual (1909-C):
+  - `memory: N` (1-99): `MCnnn;`, then reads `MC;` back. Another channel means the channel is empty, so the action fails.
+  - `memory: up` / `down`: `CH0;` / `CH1;`.
+  - `memory: to_vfo`: `MA;`.
+  - `scan: up | down | stop`: `SC1;` / `SC2;` / `SC0;`, read back with `SC;`. A bare YAML `off` is read as `stop`.
+- After `memory:`, it parses `IF;` (P1 channel, P2 frequency, P7 VFO/memory/QMB/PMS...). It logs the channel and frequency, and warns "press V/M" if the radio is in VFO mode.
+- `VM;` is not used. The manual's summary says "[V/M] key function", but its detail page says "VFO-A to memory channel", so it might overwrite a memory.
+- `ft891.py`: `recall_memory`, `step_memory`, `memory_to_vfo`, `scan`, `parse_info`. Runner dispatch.
+- Web:
+  - The schema adds `memory_targets` (up/down/to_vfo/1-99) and `scan_directions`.
+  - Form editor fields for both. The `numeric` flag saves a channel as a number.
+- README section and example config list.
+- Tests use a small FT-891 CAT model (`tests/test_ft891_memory.py`). 174 tests pass.
+
+### Next
+- [x] User confirmed `memory:` works on the FT-891 (2026-11-24). Still open:
+  - Does `MCnnn;` from VFO mode switch to memory mode? Watch for the warning.
+  - Does an empty channel answer `?;` or keep the old channel?
+  - Do `CH0;`/`CH1;` work in VFO mode?
+  - Does `SC1;` read back as `SC1;`?
+  - What does `VM;` really do? Test it on a scratch channel before ever using it.
+- [x] Committed and pushed; the user opens the PR.

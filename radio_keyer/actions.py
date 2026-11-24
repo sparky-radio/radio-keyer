@@ -20,6 +20,10 @@ HAMLIB_MODES: Final[frozenset[str]] = frozenset(
 # Placeholders allowed in CW text, e.g. "CQ {call}".
 CW_FIELDS: Final[frozenset[str]] = frozenset({"call"})
 
+# `memory:` targets besides a channel number, and `scan:` directions.
+MEMORY_STEPS: Final[tuple[str, ...]] = ("up", "down", "to_vfo")
+SCAN_DIRECTIONS: Final[tuple[str, ...]] = ("up", "down", "stop")
+
 PROFILE_NEXT: Final[str] = "next"
 PROFILE_PREV: Final[str] = "prev"
 
@@ -126,6 +130,26 @@ class PresetAction:
 
 
 @dataclass(frozen=True, slots=True)
+class MemoryAction:
+    target: int | str
+    """Memory channel number, or 'up' / 'down' / 'to_vfo' (copy memory → VFO-A)."""
+
+    def describe(self) -> str:
+        if isinstance(self.target, int):
+            return f"memory {self.target}"
+        return "memory → VFO-A" if self.target == "to_vfo" else f"memory {self.target}"
+
+
+@dataclass(frozen=True, slots=True)
+class ScanAction:
+    direction: str
+    """'up', 'down' or 'stop'."""
+
+    def describe(self) -> str:
+        return f"scan {self.direction}"
+
+
+@dataclass(frozen=True, slots=True)
 class DelayAction:
     ms: int
 
@@ -143,6 +167,8 @@ type Action = (
     | CatAction
     | ProfileAction
     | PresetAction
+    | MemoryAction
+    | ScanAction
     | DelayAction
 )
 
