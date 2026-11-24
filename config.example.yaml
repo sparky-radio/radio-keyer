@@ -18,6 +18,8 @@
 #   cat_hex: "FE FE 94 E0 03 FD"   raw binary CAT (Icom CI-V)
 #   profile: next | prev | <name>
 #   preset: <name>        apply a preset from `presets:` (FT-891)
+#   memory: 12            FT-891 memory channel 1-99 | up | down | to_vfo (copy to VFO-A)
+#   scan: up              FT-891 scan: up | down | stop
 #   delay_ms: 500
 #
 # Lookup: active profile first, then `global` for anything it doesn't define.

@@ -291,13 +291,15 @@ window.addEventListener("beforeunload", (ev) => {
 
 /**
  * @typedef {{profiles: string[], profile_targets: string[], presets: string[], bands: string[],
- *   modes: string[], cw_via: string[], cw_fields: string[], num_keys: number}} Schema
+ *   modes: string[], cw_via: string[], cw_fields: string[], memory_targets: string[],
+ *   scan_directions: string[], num_keys: number}} Schema
  * @typedef {Record<string, string | number | boolean | null>} ActionDict
  * @typedef {{profile: string, position: number, short: ActionDict[] | null,
  *   long: ActionDict[] | null}} KeyData
  * @typedef {"text" | "int" | "select"} FieldType
  * @typedef {{name: string, type: FieldType, label: string, optional?: boolean,
- *   options?: (s: Schema) => string[], min?: number, max?: number, placeholder?: string}} FieldSpec
+ *   options?: (s: Schema) => string[], min?: number, max?: number, placeholder?: string,
+ *   numeric?: boolean}} FieldSpec
  */
 
 /** Form fields per action type. The first field holds the action's own value. */
@@ -319,6 +321,9 @@ const ACTION_FIELDS = {
   cat_hex: [{ name: "cat_hex", type: "text", label: "hex", placeholder: "FE FE 94 E0 03 FD" }],
   profile: [{ name: "profile", type: "select", label: "profile", options: (s) => s.profile_targets }],
   preset: [{ name: "preset", type: "select", label: "preset", options: (s) => s.presets }],
+  // A channel number is saved as a number, "up"/"down"/"to_vfo" as text.
+  memory: [{ name: "memory", type: "select", label: "channel", numeric: true, options: (s) => s.memory_targets }],
+  scan: [{ name: "scan", type: "select", label: "scan", options: (s) => s.scan_directions }],
   delay_ms: [{ name: "delay_ms", type: "int", label: "ms", min: 0, max: 60000 }],
 };
 const ACTION_TYPES = Object.keys(ACTION_FIELDS);
@@ -375,6 +380,7 @@ const makeField = (spec, action) => {
   input.dataset.field = spec.name;
   input.dataset.type = spec.type;
   input.dataset.optional = String(spec.optional ?? false);
+  input.dataset.numeric = String(spec.numeric ?? false);
   input.setAttribute("aria-label", spec.label);
   return h("label", { class: `field field-${spec.type}` }, [h("span", {}, [spec.label]), input]);
 };
@@ -436,7 +442,8 @@ const collectRow = (row) => {
       if (input.dataset.optional !== "true") action[name] = null; // server reports it as missing
       continue;
     }
-    action[name] = input.dataset.type === "int" ? Number(value) : value;
+    const asNumber = input.dataset.type === "int" || (input.dataset.numeric === "true" && /^\d+$/.test(value));
+    action[name] = asNumber ? Number(value) : value;
   }
   return action;
 };

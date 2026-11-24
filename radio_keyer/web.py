@@ -30,7 +30,17 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.middleware.base import RequestResponseEndpoint
 
-from radio_keyer.actions import CW_FIELDS, HAMLIB_MODES, PROFILE_NEXT, PROFILE_PREV, Binding, CwVia
+from radio_keyer import ft891
+from radio_keyer.actions import (
+    CW_FIELDS,
+    HAMLIB_MODES,
+    MEMORY_STEPS,
+    PROFILE_NEXT,
+    PROFILE_PREV,
+    SCAN_DIRECTIONS,
+    Binding,
+    CwVia,
+)
 from radio_keyer.bands import BANDS
 from radio_keyer.config import GLOBAL_PROFILE, MAX_KEYS, Config, ConfigError, parse_config_text
 from radio_keyer.key_edit import KeyActions, UnknownProfileError, read_key, write_key
@@ -235,6 +245,7 @@ class WebHub:
     def schema(self) -> Json:
         """Choices for the per-key form."""
         config = self.runner.config
+        lo, hi = ft891.MEMORY_CHANNELS
         return {
             "type": "schema",
             "profiles": [GLOBAL_PROFILE, *config.profile_names],
@@ -244,6 +255,8 @@ class WebHub:
             "modes": sorted(HAMLIB_MODES),
             "cw_via": [v.value for v in CwVia],
             "cw_fields": sorted(CW_FIELDS),
+            "memory_targets": [*MEMORY_STEPS, *map(str, range(lo, hi + 1))],
+            "scan_directions": list(SCAN_DIRECTIONS),
             "num_keys": config.keypad.num_keys,
         }
 

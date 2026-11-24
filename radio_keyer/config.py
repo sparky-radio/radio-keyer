@@ -17,7 +17,9 @@ import yaml
 from radio_keyer.actions import (
     CW_FIELDS,
     HAMLIB_MODES,
+    MEMORY_STEPS,
     PROFILE_NEXT,
+    SCAN_DIRECTIONS,
     PROFILE_PREV,
     Action,
     BandAction,
@@ -29,9 +31,11 @@ from radio_keyer.actions import (
     CwVia,
     DelayAction,
     FreqAction,
+    MemoryAction,
     ModeAction,
     PresetAction,
     ProfileAction,
+    ScanAction,
     cw_fields,
 )
 from radio_keyer.bands import BANDS, band_by_name
@@ -537,7 +541,7 @@ def _parse_binding(raw: object, path: str, ctx: _Context) -> Binding:
 
 _ACTION_NAMES: Final[tuple[str, ...]] = (
     "cw", "cw_memory", "cw_stop", "band", "freq", "mode", "cat", "cat_hex", "profile", "preset",
-    "delay_ms",
+    "memory", "scan", "delay_ms",
 )
 
 
@@ -619,10 +623,36 @@ def _parse_action(raw: object, path: str, ctx: _Context) -> Action:
             target = _req_str(value, vpath)
             ctx.preset_refs.append((target, vpath))
             return PresetAction(name=target)
+        case "memory":
+            return MemoryAction(target=_parse_memory_target(value, vpath))
+        case "scan":
+            if value is False:  # YAML reads a bare `off` as false
+                value = "stop"
+            direction = _req_str(value, vpath).lower()
+            if direction == "off":
+                direction = "stop"
+            if direction not in SCAN_DIRECTIONS:
+                raise ConfigError(f"{vpath}: '{direction}' is not one of: {', '.join(SCAN_DIRECTIONS)}")
+            return ScanAction(direction=direction)
         case "delay_ms":
             return DelayAction(ms=_req_int(value, vpath, lo=0, hi=_MAX_DELAY_MS))
         case _:
             raise AssertionError(kind)
+
+
+def _parse_memory_target(value: object, path: str) -> int | str:
+    """A channel number (1-99, also as text) or one of MEMORY_STEPS."""
+    lo, hi = ft891.MEMORY_CHANNELS
+    if isinstance(value, str) and value.strip().isdigit():
+        value = int(value.strip())
+    if isinstance(value, int) and not isinstance(value, bool):
+        if not lo <= value <= hi:
+            raise ConfigError(f"{path}: memory channel must be {lo}-{hi}")
+        return value
+    text = _req_str(value, path).lower()
+    if text not in MEMORY_STEPS:
+        raise ConfigError(f"{path}: expected a channel {lo}-{hi} or one of: {', '.join(MEMORY_STEPS)}")
+    return text
 
 
 def _check_mode(mode: str, path: str) -> str:
