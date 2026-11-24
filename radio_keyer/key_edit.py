@@ -18,7 +18,8 @@ from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from ruamel.yaml.error import YAMLError
 from ruamel.yaml.scalarstring import DoubleQuotedScalarString
 
-from radio_keyer.config import GLOBAL_PROFILE, NUM_KEYS, ConfigError
+from radio_keyer.config import GLOBAL_PROFILE, ConfigError
+from radio_keyer.keypad import DEFAULT_KEY_NAMES
 from radio_keyer.keypad import PressKind
 
 type Scalar = str | int | float | bool | None
@@ -86,9 +87,17 @@ def _splice(original: str, data: CommentedMap, edited: CommentedMap) -> str:
     return "".join(out)
 
 
-def _check_position(position: int) -> None:
-    if not 1 <= position <= NUM_KEYS:
-        raise KeyEditError(f"key position must be 1-{NUM_KEYS}")
+def _num_keys(data: CommentedMap) -> int:
+    """Key count from the file's own `keypad.keys` (default: the MK623Pro's)."""
+    keypad = data.get("keypad")
+    keys = keypad.get("keys") if isinstance(keypad, Mapping) else None
+    return len(keys) if isinstance(keys, list) and keys else len(DEFAULT_KEY_NAMES)
+
+
+def _check_position(data: CommentedMap, position: int) -> None:
+    num_keys = _num_keys(data)
+    if not 1 <= position <= num_keys:
+        raise KeyEditError(f"key position must be 1-{num_keys}")
 
 
 def _profile_node(data: CommentedMap, profile: str, *, create: bool) -> CommentedMap | None:
@@ -151,8 +160,8 @@ def _actions(raw: object) -> PressActions:
 
 def read_key(text: str, profile: str, position: int) -> KeyActions:
     """The key's own short/long actions in `profile` (None = not set there)."""
-    _check_position(position)
     data = _load(text)
+    _check_position(data, position)
     result: KeyActions = {kind: None for kind in _KINDS}
     node = _profile_node(data, profile, create=False)
     keys = node.get("keys") if node is not None else None
@@ -264,7 +273,6 @@ def write_key(
     long: PressActions | None,
 ) -> str:
     """Return `text` with the key's bindings in `profile` replaced (both empty = remove)."""
-    _check_position(position)
     if read_key(text, profile, position) == {"short": short or None, "long": long or None}:
         return text  # unchanged: keep the key's own formatting too
     data = _load(text)

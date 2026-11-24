@@ -137,3 +137,14 @@ def test_example_config_round_trips_unchanged() -> None:
     k = read_key(example, "ft8", 6)
     assert write_key(example, "ft8", 1, read_key(example, "ft8", 1)["short"], None) == example
     assert k["long"] is not None and len(k["long"]) == 3
+
+
+def test_position_range_follows_keypad_keys() -> None:
+    text = "keypad:\n  keys: [KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8]\n" + TEXT
+    assert read_key(text, "cw", 8) == {"short": None, "long": None}
+    out = write_key(text, "cw", 8, [{"band": "up"}], None)
+    assert parse_config_text(out).binding("cw", 8, PressKind.SHORT) is not None
+    with pytest.raises(KeyEditError, match="1-8"):
+        read_key(text, "cw", 9)
+    with pytest.raises(KeyEditError, match="1-2"):
+        read_key("keypad: {keys: [a, b]}\n" + TEXT, "cw", 3)

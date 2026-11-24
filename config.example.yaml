@@ -1,7 +1,8 @@
 # radio-keyer configuration
 # Check it with:  radio-keyer check
 #
-# Keys are numbered 1-6: left→right, top→bottom (1 = top-left).
+# Keys are numbered 1-N in `keypad.keys` order: left→right, top→bottom
+# (1 = top-left). The MK623Pro default has 6.
 #
 # Each key has a `short` and/or `long` press. Each press runs ONE action or a
 # LIST of actions in order. A bare action (no short/long) means `short`.
@@ -41,6 +42,11 @@ rig:
     wpm: 25                   # 5-50
 
 keypad:
+  # Defaults fit the MK623Pro over USB. For another keypad, or Bluetooth /
+  # 2.4 GHz mode, run `radio-keyer learn` and paste its block here.
+  # device: /dev/input/by-id/usb-PCsensor_MK623Pro-event-kbd   # or {name: "PCsensor MK623Pro Keyboard"}
+  # keys: [KEY_F, KEY_E, KEY_D, KEY_C, KEY_B, KEY_A]          # key codes in position order
+  # columns: 3                                                # key grid width in the web UI
   long_press_ms: 600
   grab: true
 

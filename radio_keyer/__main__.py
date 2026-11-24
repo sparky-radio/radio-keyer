@@ -4,16 +4,36 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
+import os
 import socket
 import sys
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 from radio_keyer import yaesu_keyer
 from radio_keyer.actions import Binding
-from radio_keyer.config import Config, ConfigError, CwKeyer, Profile, RigBackend, load_config
-from radio_keyer.keypad import DEFAULT_DEVICE_PATH, DEFAULT_LONG_PRESS_S, Keypad, key_name
+from radio_keyer.config import (
+    Config,
+    ConfigError,
+    CwKeyer,
+    KeypadConfig,
+    Profile,
+    RigBackend,
+    load_config,
+)
+from radio_keyer.keypad import (
+    DeviceInfo,
+    Keypad,
+    KeyLearner,
+    find_device_by_name,
+    key_name,
+    learn_keys,
+    list_devices,
+    wait_for_any_key,
+)
 from radio_keyer.rig import Rig, RigConnectionError, RigctldRig, RigError, SimulatedRig
 from radio_keyer.rigctld_proc import SpawnedRigctldRig
 from radio_keyer.dtr_keyer import DtrKeyer, NullKeyLine
@@ -26,19 +46,26 @@ log = logging.getLogger("radio_keyer")
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="radio-keyer", description="MK623Pro → ham radio CAT")
+    parser = argparse.ArgumentParser(prog="radio-keyer", description="USB keypad → ham radio CAT")
     parser.add_argument("-v", "--verbose", action="store_true", help="debug logging")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    kt = sub.add_parser("keytest", help="print keypad presses (no config, no radio)")
-    kt.add_argument("--device", default=DEFAULT_DEVICE_PATH, help="evdev device path")
+    kt = sub.add_parser("keytest", help="print keypad presses (no radio)")
+    kt.add_argument("--list", action="store_true", help="list input devices and exit")
     kt.add_argument(
-        "--long-ms",
-        type=int,
-        default=int(DEFAULT_LONG_PRESS_S * 1000),
-        help="long-press threshold in ms (default %(default)s)",
+        "-c",
+        "--config",
+        type=Path,
+        default=DEFAULT_CONFIG,
+        help="read the keypad: section from this file, if it exists (default %(default)s)",
     )
+    _device_args(kt)
+    kt.add_argument("--long-ms", type=int, help="long-press threshold in ms (default: config)")
     kt.add_argument("--no-grab", action="store_true", help="don't grab exclusively")
+
+    lr = sub.add_parser("learn", help="press each key in turn; prints a keypad: config block")
+    _device_args(lr)
+    lr.add_argument("--no-grab", action="store_true", help="don't grab exclusively")
 
     for name, help_text in (
         ("check", "validate the config and print profiles"),
@@ -53,18 +80,126 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _device_args(p: argparse.ArgumentParser) -> None:
+    group = p.add_mutually_exclusive_group()
+    group.add_argument("--device", metavar="PATH", help="evdev device path")
+    group.add_argument("--name", help="evdev device name (see keytest --list)")
+
+
 # --- keytest --------------------------------------------------------------
 
 
-async def keytest(device: str, long_ms: int, grab: bool) -> None:
-    async with Keypad(device, long_press_s=long_ms / 1000, grab=grab) as keypad:
-        print("Press keypad keys (Ctrl+C to quit)...", flush=True)
+def keytest_config(config_path: Path, device: str | None, name: str | None) -> KeypadConfig:
+    """The keypad: section of `config_path` (defaults if absent), with CLI overrides."""
+    kc = load_config(config_path).keypad if config_path.exists() else KeypadConfig()
+    if device is not None:
+        kc = replace(kc, device=device, device_name=None)
+    elif name is not None:
+        kc = replace(kc, device_name=name)
+    return kc
+
+
+async def keytest(kc: KeypadConfig, grab: bool) -> None:
+    keypad = Keypad(
+        kc.device,
+        kc.keymap,
+        device_name=kc.device_name,
+        long_press_s=kc.long_press_ms / 1000,
+        grab=grab,
+        on_unmapped=lambda code: print(f"unmapped  {key_name(code)}  (not in keypad.keys)", flush=True),
+    )
+    print(f"Keypad {keypad.describe_device()}, {kc.num_keys} keys. Ctrl+C to quit.", flush=True)
+    async with keypad:
         async for press in keypad:
             print(
                 f"key {press.position}  {press.kind.value:<5}  "
                 f"{key_name(press.keycode):<6}  {press.held_s * 1000:4.0f} ms",
                 flush=True,
             )
+
+
+def print_devices() -> None:
+    devices, unreadable = list_devices()
+    if not devices:
+        print("No readable input devices.")
+    for d in devices:
+        keys = "" if d.has_keys else "  (no keys)"
+        print(f"{d.path:<20} {d.name!r}{keys}")
+        for link in d.by_id:
+            print(f"{'':<20}   {link}")
+    if unreadable:
+        print(
+            f"\n{len(unreadable)} more input devices are not readable "
+            "(no permission: your keyboard, or a keypad without a udev rule)."
+        )
+
+
+# --- learn ----------------------------------------------------------------
+
+
+async def learn(device: str | None, name: str | None, grab: bool) -> int:
+    learner = KeyLearner()
+    if name is not None:
+        path = find_device_by_name(name)
+    elif device is not None:
+        path = device
+    else:
+        print("Press any key on the keypad to pick it (the first press may type a letter)...")
+        candidates = [d.path for d in list_devices()[0] if d.has_keys]
+        path, first = await wait_for_any_key(candidates)
+        learner.key_down(first)
+    info = _device_info(path)
+    print(f"Keypad: {path} ({info.name if info else '?'})")
+    if learner.codes:
+        print(f"key 1 = {learner.names[0]}")
+    print(
+        "Press each key once, in order (left to right, top to bottom).\n"
+        "Press the first key again to finish.",
+        flush=True,
+    )
+
+    def report(result: str, code: int) -> None:
+        if result == "added":
+            print(f"key {len(learner.codes)} = {key_name(code)}", flush=True)
+        elif result == "duplicate":
+            print(f"  {key_name(code)} is already key {learner.codes.index(code) + 1}; skipped")
+
+    await learn_keys(path, learner, report, grab=grab)
+    print()
+    print(keypad_block(learner.names, path, info, name))
+    return 0
+
+
+def _device_info(path: str) -> DeviceInfo | None:
+    real = os.path.realpath(path)
+    return next((d for d in list_devices()[0] if d.path == real), None)
+
+
+def keypad_block(
+    names: list[str], path: str, info: DeviceInfo | None, name: str | None
+) -> str:
+    """A ready-to-paste keypad: section."""
+    links = list(info.by_id) if info else []
+    by_id = [p for p in links if p.endswith("-kbd")] or links
+    if name is None and path.startswith("/dev/input/by-id/"):
+        device = path
+    elif name is None and by_id:
+        device = by_id[0]
+    else:
+        device = None
+    dev_name = name or (info.name if info else None)
+    lines = ["# Paste into config.yaml (replace the existing keypad: section):", "keypad:"]
+    if device is not None:
+        lines.append(f"  device: {device}")
+        if dev_name:
+            lines.append(f"  # device: {{name: {json.dumps(dev_name)}}}   # by name (Bluetooth/2.4 GHz)")
+    elif dev_name:
+        lines.append(f"  device: {{name: {json.dumps(dev_name)}}}")
+    else:
+        lines.append(f"  device: {path}")
+    lines.append(f"  keys: [{', '.join(names)}]")
+    lines.append(f"  columns: {min(len(names), 3)}               # key grid width in the web UI")
+    return "\n".join(lines)
 
 
 # --- check ----------------------------------------------------------------
@@ -98,7 +233,11 @@ def check(config: Config) -> None:
     elif rc.cw_keyer is CwKeyer.DTR:
         d = rc.dtr
         print(f"CW:       {d.line.value.upper()} keying on {d.port} at {d.wpm} WPM")
-    print(f"Keypad:   {config.keypad.device} (long press {config.keypad.long_press_ms} ms)")
+    kc = config.keypad
+    print(
+        f"Keypad:   {kc.describe_device()}, {kc.num_keys} keys "
+        f"(long press {kc.long_press_ms} ms)"
+    )
     w = config.web
     print(f"Web UI:   {url_for(w.host, w.port) if w.enabled else 'disabled'}")
     if config.presets:
@@ -173,7 +312,13 @@ async def run_app(
     """Keypad (+ web UI) until Ctrl+C."""
     runner = Runner(config, rig, keyer_factory=keyer_factory)
     kc = config.keypad
-    keypad = Keypad(kc.device, long_press_s=kc.long_press_ms / 1000, grab=kc.grab)
+    keypad = Keypad(
+        kc.device,
+        kc.keymap,
+        device_name=kc.device_name,
+        long_press_s=kc.long_press_ms / 1000,
+        grab=kc.grab,
+    )
     log.info("Profile: %s (%s)", runner.active_profile, config.profile(runner.active_profile).label)
 
     hub: WebHub | None = None
@@ -256,11 +401,27 @@ def main(argv: list[str] | None = None) -> int:
     )
     try:
         if args.command == "keytest":
-            if args.long_ms <= 0:
+            if args.list:
+                print_devices()
+                return 0
+            if args.long_ms is not None and args.long_ms <= 0:
                 print("--long-ms must be > 0", file=sys.stderr)
                 return 2
-            asyncio.run(keytest(args.device, args.long_ms, not args.no_grab))
+            try:
+                kc = keytest_config(args.config, args.device, args.name)
+            except ConfigError as exc:
+                print(f"Config error: {exc}", file=sys.stderr)
+                return 1
+            if args.long_ms is not None:
+                kc = replace(kc, long_press_ms=args.long_ms)
+            asyncio.run(keytest(kc, not args.no_grab))
             return 0
+        if args.command == "learn":
+            try:
+                return asyncio.run(learn(args.device, args.name, not args.no_grab))
+            except OSError as exc:
+                print(f"Error: {exc}", file=sys.stderr)
+                return 1
 
         try:
             config = load_config(args.config)

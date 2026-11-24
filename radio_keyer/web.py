@@ -32,7 +32,7 @@ from starlette.middleware.base import RequestResponseEndpoint
 
 from radio_keyer.actions import CW_FIELDS, HAMLIB_MODES, PROFILE_NEXT, PROFILE_PREV, Binding, CwVia
 from radio_keyer.bands import BANDS
-from radio_keyer.config import GLOBAL_PROFILE, NUM_KEYS, Config, ConfigError, parse_config_text
+from radio_keyer.config import GLOBAL_PROFILE, MAX_KEYS, Config, ConfigError, parse_config_text
 from radio_keyer.key_edit import KeyActions, UnknownProfileError, read_key, write_key
 from radio_keyer.keypad import KeyPress, PressKind
 from radio_keyer.rig import Rig, RigConnectionError, RigError
@@ -55,7 +55,7 @@ type Json = dict[str, object]
 
 
 class PressIn(BaseModel):
-    position: int = Field(ge=1, le=NUM_KEYS)
+    position: int = Field(ge=1, le=MAX_KEYS)
     kind: PressKind = PressKind.SHORT
 
 
@@ -150,7 +150,7 @@ class WebHub:
         config = self.runner.config
         active = config.profile(self.runner.active_profile)
         keys: list[Json] = []
-        for pos in range(1, NUM_KEYS + 1):
+        for pos in range(1, config.keypad.num_keys + 1):
             entry: Json = {"position": pos}
             for kind in PressKind:
                 own = active.binding(pos, kind)
@@ -169,6 +169,7 @@ class WebHub:
             "profiles": [{"name": p.name, "label": p.label} for p in config.profiles],
             "active_profile": active.name,
             "keys": keys,
+            "columns": config.keypad.columns,
             "config_path": str(self.config_path),
             "restart_required": self.restart_required,
         }
@@ -205,6 +206,12 @@ class WebHub:
 
     # --- actions ---------------------------------------------------------
 
+    def check_position(self, position: int) -> None:
+        """ValueError if the configured keypad has no such key."""
+        num_keys = self.runner.config.keypad.num_keys
+        if not 1 <= position <= num_keys:
+            raise ValueError(f"key position must be 1-{num_keys}")
+
     async def press(self, position: int, kind: PressKind) -> bool:
         log.info("Web UI press: key %d %s", position, kind.value)
         ok = await self.runner.handle_press(
@@ -237,7 +244,7 @@ class WebHub:
             "modes": sorted(HAMLIB_MODES),
             "cw_via": [v.value for v in CwVia],
             "cw_fields": sorted(CW_FIELDS),
-            "num_keys": NUM_KEYS,
+            "num_keys": config.keypad.num_keys,
         }
 
     def read_key(self, profile: str, position: int) -> KeyActions:
@@ -360,6 +367,10 @@ def create_app(hub: WebHub, *, allowed_hosts: frozenset[str] | None = LOOPBACK_H
 
     @app.post("/api/press")
     async def post_press(body: PressIn) -> Json:
+        try:
+            hub.check_position(body.position)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
         return {"ok": await hub.press(body.position, body.kind)}
 
     @app.post("/api/profile")
