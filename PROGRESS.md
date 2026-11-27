@@ -2,9 +2,10 @@
 
 ## Open items
 
-As of 2026-11-24. Details are in the dated log below.
+As of 2026-11-27. Details are in the dated log below.
 - [ ] Bluetooth/2.4 GHz keypad by name: not tried yet (keypad support merged, PR #3).
-- [ ] FT-891 `scan:` and the open `memory:` questions (session 12): `memory:` confirmed working on the radio.
+- [ ] FT-891 `scan:` and the open `memory:` questions (session 12, merged PR #4): `memory:` confirmed working on the radio.
+- [ ] `feature/ic7300` (unmerged) predates PRs #3/#4: rebase onto main before opening a PR.
 - [ ] WinKeyer CW: config accepts `cw: ... via: winkeyer`, but the runner rejects it ("not implemented yet").
 - [ ] `cw_memory` for radio families other than Yaesu.
 - [ ] Presets for radios other than the FT-891.
@@ -304,4 +305,17 @@ Keypad support was merged as PR #3 (33a7d07).
   - Do `CH0;`/`CH1;` work in VFO mode?
   - Does `SC1;` read back as `SC1;`?
   - What does `VM;` really do? Test it on a scratch channel before ever using it.
-- [x] Committed and pushed; the user opens the PR.
+- [x] Committed and pushed; merged as PR #4 (ddb8e9a).
+
+## 2026-11-27 (session 13): housekeeping; keypad LEDs
+
+### Done
+- Deleted the merged branches: local `feature/memory-action` and `feature/mode-presets`; origin `feature/memory-action` and `feature/keypad-support`. Only `feature/ic7300` remains unmerged.
+
+### Findings
+- The MK623Pro has two sets of lights: one under each key and an RGB ring around the base.
+  - Keys: red = layer 1. They pulse slowly when idle, and a pressed key flashes red briefly.
+  - Base: cycles colours slowly while connected over USB.
+  - Both effects come from the keypad firmware and are set in ElfKey.
+- `event-kbd` reports only `LED_NUML`/`LED_CAPSL`/`LED_SCROLLL`. Toggling them (one at a time, then all together, 10 s on/off) made no change the user could see. The keypad seems to ignore them.
+- Decision: leave the lights to the keypad. Host control would mean reverse-engineering ElfKey's USB protocol, and it may only write settings into the keypad's storage.
